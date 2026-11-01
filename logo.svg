@@ -1,0 +1,40 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" fill="none">
+  <defs>
+    <linearGradient id="goldTop" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#FFE07D"/>
+      <stop offset="100%" stop-color="#F5B942"/>
+    </linearGradient>
+    <linearGradient id="goldLeft" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#F5B942"/>
+      <stop offset="100%" stop-color="#D99726"/>
+    </linearGradient>
+    <linearGradient id="goldRight" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#C78418"/>
+      <stop offset="100%" stop-color="#9E6205"/>
+    </linearGradient>
+    <filter id="glow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="2" stdDeviation="3" flood-color="#F5B942" flood-opacity="0.35"/>
+    </filter>
+  </defs>
+  
+  <!-- Outer Box Shadow/Glow -->
+  <g filter="url(#glow)">
+    <!-- Top Face -->
+    <path d="M24 4L42 14.5L24 25L6 14.5L24 4Z" fill="url(#goldTop)"/>
+    
+    <!-- Left Face -->
+    <path d="M6 14.5L24 25V44L6 33.5V14.5Z" fill="url(#goldLeft)"/>
+    
+    <!-- Right Face -->
+    <path d="M24 25L42 14.5V33.5L24 44V25Z" fill="url(#goldRight)"/>
+    
+    <!-- Box Flap Line & Tape Detail -->
+    <path d="M24 25V35" stroke="#FFE07D" stroke-width="2.5" stroke-linecap="round"/>
+    <path d="M24 4L24 16" stroke="#9E6205" stroke-width="2" stroke-linecap="round" opacity="0.6"/>
+    <path d="M15 9.25L33 19.75" stroke="#9E6205" stroke-width="1.5" stroke-linecap="round" opacity="0.5"/>
+    
+    <!-- Cube Corner Accent -->
+    <circle cx="24" cy="25" r="2.2" fill="#FFE07D"/>
+  </g>
+</svg>
+
