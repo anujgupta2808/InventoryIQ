@@ -1286,7 +1286,21 @@ body.sidebar-collapsed .sidebar-collapse-btn {
 
 .topbar-search-box {
   position: relative;
-  width: 380px;
+  width: 320px;
+  max-width: 100%;
+}
+
+.iq-topbar {
+  flex-wrap: nowrap !important;
+}
+
+.topbar-left {
+  flex-shrink: 1;
+  min-width: 0;
+}
+
+.topbar-right {
+  flex-shrink: 0;
 }
 
 .topbar-search-input {
@@ -1813,7 +1827,7 @@ body.sidebar-collapsed .sidebar-collapse-btn {
   }
 
   .sidebar-toggle-btn {
-    display: flex !important;
+    display: none !important;
   }
 
   .sidebar-overlay {
@@ -2661,7 +2675,7 @@ body.sidebar-collapsed .sidebar-collapse-btn {
   padding: 10px 0 !important;
 }
 
-/* Topbar Navigation Drawer Toggle Button (Mobiles & Small Devices Only) */
+/* Topbar Navigation Drawer Toggle Button (Mobiles Only - Strictly Hidden on Tablets & Desktops) */
 .sidebar-toggle-btn {
   display: none;
   align-items: center;
@@ -2677,13 +2691,13 @@ body.sidebar-collapsed .sidebar-collapse-btn {
   transition: all 0.15s ease-in-out !important;
 }
 
-@media (max-width: 991.98px) {
+@media (max-width: 767.98px) {
   .sidebar-toggle-btn {
     display: flex !important;
   }
 }
 
-@media (min-width: 992px) {
+@media (min-width: 768px) {
   .sidebar-toggle-btn {
     display: none !important;
     visibility: hidden !important;

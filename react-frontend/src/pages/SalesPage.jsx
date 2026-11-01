@@ -9,6 +9,7 @@ export const SalesPage = () => {
     createSale,
     setActiveInvoice,
     setIsInvoiceOpen,
+    setCurrentPage,
     exportCSV,
     showToast
   } = useInventory();
@@ -21,17 +22,36 @@ export const SalesPage = () => {
 
   // New Sale Modal State
   const [isNewSaleOpen, setIsNewSaleOpen] = useState(false);
-  const [customerType, setCustomerType] = useState('existing'); // 'existing' | 'walkin'
-  const [selectedCustomerId, setSelectedCustomerId] = useState(customers[0]?.id || 1);
+  const [customerType, setCustomerType] = useState(customers.length > 0 ? 'existing' : 'walkin');
+  const [selectedCustomerId, setSelectedCustomerId] = useState(customers[0]?.id || '');
   const [walkinName, setWalkinName] = useState('');
+  const [walkinPhone, setWalkinPhone] = useState('');
+  const [walkinEmail, setWalkinEmail] = useState('');
+  const [walkinAddress, setWalkinAddress] = useState('');
   const [paymentMethod, setPaymentMethod] = useState('UPI');
   const [discount, setDiscount] = useState(0);
   const [taxRate, setTaxRate] = useState(12); // 12% GST
 
   // Cart / Line items
-  const [cartItems, setCartItems] = useState([
-    { productId: products[0]?.id || 1, qty: 1 }
-  ]);
+  const [cartItems, setCartItems] = useState(() => 
+    products.length > 0 ? [{ productId: products[0].id, qty: 1 }] : []
+  );
+
+  const handleOpenNewSale = () => {
+    setCustomerType(customers.length > 0 ? 'existing' : 'walkin');
+    setSelectedCustomerId(customers[0]?.id || '');
+    setWalkinName('');
+    setWalkinPhone('');
+    setWalkinEmail('');
+    setWalkinAddress('');
+    if (products.length > 0) {
+      setCartItems([{ productId: products[0].id, qty: 1 }]);
+    } else {
+      setCartItems([]);
+    }
+    setDiscount(0);
+    setIsNewSaleOpen(true);
+  };
 
   // Filtered sales
   const filteredSales = useMemo(() => {
@@ -73,10 +93,11 @@ export const SalesPage = () => {
   const grandTotal = taxable + taxVal;
 
   const handleAddCartRow = () => {
-    // Pick first product not already in cart
     const existingIds = new Set(cartItems.map(c => Number(c.productId)));
     const nextProd = products.find(p => !existingIds.has(p.id)) || products[0];
-    setCartItems(prev => [...prev, { productId: nextProd.id, qty: 1 }]);
+    if (nextProd) {
+      setCartItems(prev => [...prev, { productId: nextProd.id, qty: 1 }]);
+    }
   };
 
   const handleRemoveCartRow = (index) => {
@@ -99,6 +120,11 @@ export const SalesPage = () => {
   const handleSubmitSale = (e) => {
     e.preventDefault();
 
+    if (products.length === 0 || cartItems.length === 0) {
+      showToast('No Products in Cart', 'Please add products to your sale invoice.', 'danger');
+      return;
+    }
+
     // Validate stocks
     for (const item of calculatedItems) {
       if (item.qty > item.availableStock) {
@@ -107,20 +133,29 @@ export const SalesPage = () => {
       }
     }
 
-    let customerName = walkinName || 'Walk-in Customer';
+    let customerName = (walkinName || '').trim() || 'Walk-in Customer';
     let custId = null;
+    let customerPhone = walkinPhone.trim();
+    let customerEmail = walkinEmail.trim();
+    let customerAddress = walkinAddress.trim();
 
     if (customerType === 'existing') {
       const c = customers.find(x => x.id === Number(selectedCustomerId));
       if (c) {
         customerName = c.name;
         custId = c.id;
+        customerPhone = c.phone;
+        customerEmail = c.email;
+        customerAddress = c.address;
       }
     }
 
     const newSale = createSale({
       customerId: custId,
       customerName,
+      customerPhone,
+      customerEmail,
+      customerAddress,
       items: calculatedItems.map(i => ({
         productId: i.productId,
         name: i.name,
@@ -135,9 +170,6 @@ export const SalesPage = () => {
     });
 
     setIsNewSaleOpen(false);
-    // Reset modal
-    setCartItems([{ productId: products[0]?.id || 1, qty: 1 }]);
-    setDiscount(0);
 
     // Open invoice preview
     setActiveInvoice(newSale);
@@ -168,7 +200,7 @@ export const SalesPage = () => {
       <div className="d-flex flex-wrap align-items-center justify-content-between gap-3 mb-4">
         <div>
           <h2 className="page-title text-white fw-bold mb-1">Sales Management</h2>
-          <p className="page-subtitle text-secondary mb-0">Record and track your sales transactions</p>
+          <p className="page-subtitle text-secondary mb-0">Record sales, auto-sync customer profiles, and automatically deduct inventory</p>
         </div>
         <div className="d-flex align-items-center gap-2">
           <button
@@ -182,7 +214,7 @@ export const SalesPage = () => {
           <button
             type="button"
             className="btn btn-gold d-flex align-items-center gap-2"
-            onClick={() => setIsNewSaleOpen(true)}
+            onClick={handleOpenNewSale}
           >
             <i className="bi bi-plus-lg"></i>
             <span>+ New Sale</span>
@@ -250,8 +282,25 @@ export const SalesPage = () => {
               {paginatedSales.length === 0 ? (
                 <tr>
                   <td colSpan="7" className="text-center py-5 text-secondary">
-                    <i className="bi bi-receipt fs-2 d-block mb-2 text-muted"></i>
-                    No sales records found.
+                    {sales.length === 0 ? (
+                      <div className="py-3">
+                        <i className="bi bi-receipt fs-2 d-block mb-2 text-muted"></i>
+                        <h6 className="text-white mb-1">No sales recorded yet</h6>
+                        <p className="text-secondary small mb-3">Record transactions to auto-create customer records and deduct inventory stock.</p>
+                        <button
+                          type="button"
+                          className="btn btn-gold btn-sm"
+                          onClick={handleOpenNewSale}
+                        >
+                          <i className="bi bi-plus-lg me-1"></i> Record First Sale
+                        </button>
+                      </div>
+                    ) : (
+                      <>
+                        <i className="bi bi-receipt fs-2 d-block mb-2 text-muted"></i>
+                        No sales records found matching your filters.
+                      </>
+                    )}
                   </td>
                 </tr>
               ) : (
@@ -347,7 +396,9 @@ export const SalesPage = () => {
             <div className="d-flex justify-content-between align-items-center mb-3 pb-2 border-bottom border-secondary">
               <div>
                 <h5 className="modal-title text-white fw-bold mb-0">Create New Sale</h5>
-                <small className="text-secondary">Create invoice and automatically update inventory stock</small>
+                <small className="text-secondary">
+                  Customer data will sync to Customer CRM & purchased quantities will be deducted from Inventory stock
+                </small>
               </div>
               <button
                 type="button"
@@ -356,58 +407,58 @@ export const SalesPage = () => {
               ></button>
             </div>
 
+            {/* Zero product notification banner */}
+            {products.length === 0 && (
+              <div className="p-3 mb-3 rounded bg-secondary-dark border border-warning d-flex align-items-center justify-content-between flex-wrap gap-2">
+                <div className="d-flex align-items-center gap-2 text-warning">
+                  <i className="bi bi-exclamation-triangle-fill fs-5"></i>
+                  <span><strong>No products in inventory!</strong> Add products via Purchases or directly in Inventory to record sales.</span>
+                </div>
+                <div className="d-flex align-items-center gap-2">
+                  <button
+                    type="button"
+                    className="btn btn-sm btn-gold"
+                    onClick={() => { setIsNewSaleOpen(false); setCurrentPage('purchases'); }}
+                  >
+                    Go to Purchases
+                  </button>
+                  <button
+                    type="button"
+                    className="btn btn-sm btn-secondary-custom"
+                    onClick={() => { setIsNewSaleOpen(false); setCurrentPage('inventory'); }}
+                  >
+                    Go to Inventory
+                  </button>
+                </div>
+              </div>
+            )}
+
             <form onSubmit={handleSubmitSale}>
-              {/* Customer Selector */}
-              <div className="row g-3 mb-4">
+              {/* Customer Selector & Inputs */}
+              <div className="row g-3 mb-3">
                 <div className="col-12 col-md-4">
-                  <label className="form-label text-secondary small">Customer Type</label>
+                  <label className="form-label text-secondary small">Customer Source</label>
                   <div className="btn-group w-100" role="group">
-                    <button
-                      type="button"
-                      className={`btn btn-sm ${customerType === 'existing' ? 'btn-gold' : 'btn-outline-secondary'}`}
-                      onClick={() => setCustomerType('existing')}
-                    >
-                      Existing Customer
-                    </button>
+                    {customers.length > 0 && (
+                      <button
+                        type="button"
+                        className={`btn btn-sm ${customerType === 'existing' ? 'btn-gold' : 'btn-outline-secondary'}`}
+                        onClick={() => setCustomerType('existing')}
+                      >
+                        Existing Customer
+                      </button>
+                    )}
                     <button
                       type="button"
                       className={`btn btn-sm ${customerType === 'walkin' ? 'btn-gold' : 'btn-outline-secondary'}`}
                       onClick={() => setCustomerType('walkin')}
                     >
-                      Walk-in / New
+                      + New / Walk-in Customer
                     </button>
                   </div>
                 </div>
 
-                {customerType === 'existing' ? (
-                  <div className="col-12 col-md-5">
-                    <label className="form-label text-secondary small">Select Customer *</label>
-                    <select
-                      className="form-select bg-input border-secondary text-white"
-                      value={selectedCustomerId}
-                      onChange={(e) => setSelectedCustomerId(e.target.value)}
-                    >
-                      {customers.map(c => (
-                        <option key={c.id} value={c.id}>
-                          {c.name} ({c.phone})
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                ) : (
-                  <div className="col-12 col-md-5">
-                    <label className="form-label text-secondary small">Walk-in Customer Name</label>
-                    <input
-                      type="text"
-                      className="form-control bg-input border-secondary text-white"
-                      placeholder="e.g. Anand Verma"
-                      value={walkinName}
-                      onChange={(e) => setWalkinName(e.target.value)}
-                    />
-                  </div>
-                )}
-
-                <div className="col-12 col-md-3">
+                <div className="col-12 col-md-4">
                   <label className="form-label text-secondary small">Payment Method *</label>
                   <select
                     className="form-select bg-input border-secondary text-white"
@@ -422,17 +473,94 @@ export const SalesPage = () => {
                 </div>
               </div>
 
+              {/* Customer Info Card */}
+              {customerType === 'existing' ? (
+                <div className="p-3 rounded bg-secondary-dark border border-secondary mb-4">
+                  <label className="form-label text-secondary small">Select Customer *</label>
+                  <select
+                    className="form-select bg-input border-secondary text-white"
+                    value={selectedCustomerId}
+                    onChange={(e) => setSelectedCustomerId(e.target.value)}
+                  >
+                    {customers.map(c => (
+                      <option key={c.id} value={c.id}>
+                        {c.name} ({c.phone || 'No phone'}) - {c.totalOrders || 0} orders
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              ) : (
+                <div className="p-3 rounded bg-secondary-dark border border-warning mb-4">
+                  <div className="d-flex align-items-center justify-content-between mb-2">
+                    <span className="text-gold fw-semibold small">
+                      <i className="bi bi-person-plus-fill me-1"></i> Customer Information
+                    </span>
+                    <span className="badge badge-gold" style={{ fontSize: '0.72rem' }}>
+                      Auto-saves to Customer CRM
+                    </span>
+                  </div>
+                  <div className="row g-2">
+                    <div className="col-12 col-md-4">
+                      <label className="form-label text-secondary small">Customer Name *</label>
+                      <input
+                        type="text"
+                        required
+                        className="form-control bg-input border-secondary text-white"
+                        placeholder="e.g. Rahul Sharma"
+                        value={walkinName}
+                        onChange={(e) => setWalkinName(e.target.value)}
+                      />
+                    </div>
+                    <div className="col-12 col-md-4">
+                      <label className="form-label text-secondary small">Phone Number</label>
+                      <input
+                        type="tel"
+                        className="form-control bg-input border-secondary text-white"
+                        placeholder="+91 98111 22334"
+                        value={walkinPhone}
+                        onChange={(e) => setWalkinPhone(e.target.value)}
+                      />
+                    </div>
+                    <div className="col-12 col-md-4">
+                      <label className="form-label text-secondary small">Email Address (Optional)</label>
+                      <input
+                        type="email"
+                        className="form-control bg-input border-secondary text-white"
+                        placeholder="rahul@example.com"
+                        value={walkinEmail}
+                        onChange={(e) => setWalkinEmail(e.target.value)}
+                      />
+                    </div>
+                    <div className="col-12">
+                      <label className="form-label text-secondary small">Billing / Delivery Address (Optional)</label>
+                      <input
+                        type="text"
+                        className="form-control bg-input border-secondary text-white"
+                        placeholder="Apartment, Street, City"
+                        value={walkinAddress}
+                        onChange={(e) => setWalkinAddress(e.target.value)}
+                      />
+                    </div>
+                  </div>
+                </div>
+              )}
+
               {/* Line Items Table */}
               <div className="card-custom p-3 mb-4">
                 <div className="d-flex justify-content-between align-items-center mb-3">
-                  <h6 className="fw-bold text-white mb-0">Products & Quantities</h6>
-                  <button
-                    type="button"
-                    className="btn btn-sm btn-outline-warning text-gold"
-                    onClick={handleAddCartRow}
-                  >
-                    <i className="bi bi-plus me-1"></i> Add Item
-                  </button>
+                  <div>
+                    <h6 className="fw-bold text-white mb-0">Products & Quantities</h6>
+                    <small className="text-secondary">Quantities will be deducted from inventory automatically</small>
+                  </div>
+                  {products.length > 0 && (
+                    <button
+                      type="button"
+                      className="btn btn-sm btn-outline-warning text-gold"
+                      onClick={handleAddCartRow}
+                    >
+                      <i className="bi bi-plus me-1"></i> Add Another Item
+                    </button>
+                  )}
                 </div>
 
                 <div className="table-responsive">
@@ -447,52 +575,64 @@ export const SalesPage = () => {
                       </tr>
                     </thead>
                     <tbody>
-                      {cartItems.map((item, index) => {
-                        const prod = products.find(p => p.id === Number(item.productId)) || products[0];
-                        return (
-                          <tr key={index} className="border-bottom border-secondary">
-                            <td>
-                              <select
-                                className="form-select form-select-sm bg-input border-secondary text-white"
-                                value={item.productId}
-                                onChange={(e) => handleCartChange(index, 'productId', e.target.value)}
-                              >
-                                {products.map(p => (
-                                  <option key={p.id} value={p.id} disabled={p.stock <= 0}>
-                                    {p.name} (Stock: {p.stock} {p.unit}s) - ₹{p.price}
-                                  </option>
-                                ))}
-                              </select>
-                            </td>
-                            <td>
-                              <span className="text-secondary">₹{prod?.price || 0}</span>
-                            </td>
-                            <td>
-                              <input
-                                type="number"
-                                min="1"
-                                max={prod?.stock || 999}
-                                className="form-control form-control-sm bg-input border-secondary text-white"
-                                value={item.qty}
-                                onChange={(e) => handleCartChange(index, 'qty', e.target.value)}
-                              />
-                            </td>
-                            <td className="text-end fw-semibold text-white">
-                              ₹{(Number(prod?.price || 0) * (Number(item.qty) || 1)).toLocaleString('en-IN')}
-                            </td>
-                            <td className="text-end">
-                              <button
-                                type="button"
-                                className="btn btn-sm btn-icon text-danger"
-                                onClick={() => handleRemoveCartRow(index)}
-                                title="Remove row"
-                              >
-                                <i className="bi bi-x-lg"></i>
-                              </button>
-                            </td>
-                          </tr>
-                        );
-                      })}
+                      {cartItems.length === 0 ? (
+                        <tr>
+                          <td colSpan="5" className="text-center py-4 text-secondary">
+                            No products available to add. Please add products to inventory first.
+                          </td>
+                        </tr>
+                      ) : (
+                        cartItems.map((item, index) => {
+                          const prod = products.find(p => p.id === Number(item.productId)) || products[0];
+                          return (
+                            <tr key={index} className="border-bottom border-secondary">
+                              <td>
+                                <select
+                                  className="form-select form-select-sm bg-input border-secondary text-white"
+                                  value={item.productId}
+                                  onChange={(e) => handleCartChange(index, 'productId', e.target.value)}
+                                >
+                                  {products.map(p => (
+                                    <option key={p.id} value={p.id} disabled={p.stock <= 0}>
+                                      {p.name} (Stock: {p.stock} {p.unit || 'pcs'}) - ₹{p.price}
+                                      {p.stock <= 0 ? ' [OUT OF STOCK]' : ''}
+                                    </option>
+                                  ))}
+                                </select>
+                              </td>
+                              <td>
+                                <span className="text-secondary">₹{prod?.price || 0}</span>
+                              </td>
+                              <td>
+                                <input
+                                  type="number"
+                                  min="1"
+                                  max={prod?.stock || 999}
+                                  className="form-control form-control-sm bg-input border-secondary text-white"
+                                  value={item.qty}
+                                  onChange={(e) => handleCartChange(index, 'qty', e.target.value)}
+                                />
+                                {prod && prod.stock < item.qty && (
+                                  <small className="text-danger d-block">Only {prod.stock} in stock</small>
+                                )}
+                              </td>
+                              <td className="text-end fw-semibold text-white">
+                                ₹{(Number(prod?.price || 0) * (Number(item.qty) || 1)).toLocaleString('en-IN')}
+                              </td>
+                              <td className="text-end">
+                                <button
+                                  type="button"
+                                  className="btn btn-sm btn-icon text-danger"
+                                  onClick={() => handleRemoveCartRow(index)}
+                                  title="Remove row"
+                                >
+                                  <i className="bi bi-x-lg"></i>
+                                </button>
+                              </td>
+                            </tr>
+                          );
+                        })
+                      )}
                     </tbody>
                   </table>
                 </div>
@@ -555,8 +695,12 @@ export const SalesPage = () => {
                 >
                   Cancel
                 </button>
-                <button type="submit" className="btn btn-gold px-4">
-                  <i className="bi bi-check2-circle me-1"></i> Finalize & Generate Invoice
+                <button
+                  type="submit"
+                  className="btn btn-gold px-4"
+                  disabled={products.length === 0 || cartItems.length === 0}
+                >
+                  <i className="bi bi-check2-circle me-1"></i> Finalize Sale & Deduct Stock
                 </button>
               </div>
             </form>
@@ -566,4 +710,3 @@ export const SalesPage = () => {
     </div>
   );
 };
-

@@ -1,9 +1,11 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { useInventory } from '../context/InventoryContext';
 
 export const Topbar = () => {
   const {
     user,
+    sales,
+    purchases,
     setCurrentPage,
     sidebarCollapsed,
     setSidebarCollapsed,
@@ -11,7 +13,7 @@ export const Topbar = () => {
     setMobileMenuOpen,
     setIsGlobalSearchOpen,
     lowStockItems,
-    setIsAuthenticated,
+    logout,
     showToast,
     theme,
     toggleTheme
@@ -21,11 +23,39 @@ export const Topbar = () => {
   const [profileOpen, setProfileOpen] = useState(false);
   const [createOpen, setCreateOpen] = useState(false);
 
-  const [notifications, setNotifications] = useState([
-    { id: 1, title: 'Low Stock Alert', desc: `${lowStockItems.length} products below minimum threshold.`, time: '10m ago', unread: true },
-    { id: 2, title: 'Purchase Delivered', desc: 'PO #P-2045 from ABC Traders restocked.', time: '1h ago', unread: true },
-    { id: 3, title: 'High Value Sale', desc: 'Sale #S-1040 for ₹4,320 completed.', time: '3h ago', unread: false }
-  ]);
+  const notifications = useMemo(() => {
+    const list = [];
+    if (lowStockItems && lowStockItems.length > 0) {
+      list.push({
+        id: 'notif-stock',
+        title: 'Low Stock Alert',
+        desc: `${lowStockItems.length} product${lowStockItems.length > 1 ? 's' : ''} below safety threshold.`,
+        time: 'Just now',
+        unread: true
+      });
+    }
+    if (sales && sales.length > 0) {
+      const s = sales[0];
+      list.push({
+        id: `notif-${s.id}`,
+        title: 'Sale Created',
+        desc: `Invoice #${s.id} for ₹${Number(s.amount).toLocaleString('en-IN')}`,
+        time: s.date || 'Recent',
+        unread: false
+      });
+    }
+    if (purchases && purchases.length > 0) {
+      const p = purchases[0];
+      list.push({
+        id: `notif-${p.id}`,
+        title: 'Purchase Order Logged',
+        desc: `Order #${p.id} placed with ${p.supplierName}`,
+        time: p.date || 'Recent',
+        unread: false
+      });
+    }
+    return list;
+  }, [lowStockItems, sales, purchases]);
 
   const notifRef = useRef(null);
   const profileRef = useRef(null);
@@ -60,31 +90,31 @@ export const Topbar = () => {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [setIsGlobalSearchOpen]);
 
+  const [readNotifIds, setReadNotifIds] = useState([]);
+
   const markAllRead = () => {
-    setNotifications(prev => prev.map(n => ({ ...n, unread: false })));
+    setReadNotifIds(notifications.map(n => n.id));
     showToast('Notifications', 'All notifications marked as read.', 'info');
   };
 
   const handleLogout = () => {
-    setIsAuthenticated(false);
-    setCurrentPage('login');
-    showToast('Signed Out', 'You have been logged out.', 'info');
+    logout();
   };
 
   const handleToggleSidebar = () => {
     setMobileMenuOpen(prev => !prev);
   };
 
-  const unreadCount = notifications.filter(n => n.unread).length;
+  const unreadCount = notifications.filter(n => n.unread && !readNotifIds.includes(n.id)).length;
 
   return (
     <header className="iq-topbar">
       <div className="topbar-left">
-        {/* Navigation Drawer Toggle (Mobiles and Small Devices Only) */}
+        {/* Navigation Drawer Toggle (Mobiles Only - Strictly Hidden on Desktop & Tablet) */}
         <button
           type="button"
           id="sidebarToggleBtn"
-          className="sidebar-toggle-btn d-lg-none"
+          className="sidebar-toggle-btn d-md-none"
           onClick={handleToggleSidebar}
           aria-label="Toggle navigation menu"
           title="Toggle menu"
@@ -104,7 +134,7 @@ export const Topbar = () => {
             type="text"
             readOnly
             className="topbar-search-input cursor-pointer"
-            placeholder="Search anything... (Products, Sales, Contacts)"
+            placeholder="Search anything..."
             style={{ cursor: 'pointer' }}
           />
           <kbd className="topbar-search-kbd">Ctrl+K</kbd>
@@ -140,9 +170,10 @@ export const Topbar = () => {
             type="button"
             className="btn btn-gold btn-sm d-flex align-items-center gap-1"
             onClick={() => setCreateOpen(!createOpen)}
+            title="Quick Create"
           >
             <i className="bi bi-plus-lg"></i>
-            <span className="d-none d-sm-inline">Create</span>
+            <span className="d-none d-md-inline">Create</span>
           </button>
 
           {createOpen && (
@@ -209,19 +240,29 @@ export const Topbar = () => {
                 </button>
               </div>
               <div className="p-2" style={{ maxHeight: 280, overflowY: 'auto' }}>
-                {notifications.map(item => (
-                  <div
-                    key={item.id}
-                    className={`d-flex align-items-start gap-2 p-2 rounded mb-1 ${item.unread ? 'bg-hover' : ''}`}
-                  >
-                    <i className="bi bi-exclamation-triangle-fill mt-1" style={{ color: 'var(--primary-accent)' }}></i>
-                    <div>
-                      <div className="text-white" style={{ fontSize: '0.85rem' }}><strong>{item.title}</strong></div>
-                      <small className="text-secondary d-block" style={{ fontSize: '0.75rem' }}>{item.desc}</small>
-                      <div className="text-muted" style={{ fontSize: '0.7rem' }}>{item.time}</div>
-                    </div>
+                {notifications.length === 0 ? (
+                  <div className="text-center py-4 text-secondary small">
+                    <i className="bi bi-bell-slash fs-4 d-block mb-1 text-muted"></i>
+                    No new notifications
                   </div>
-                ))}
+                ) : (
+                  notifications.map(item => {
+                    const isUnread = item.unread && !readNotifIds.includes(item.id);
+                    return (
+                      <div
+                        key={item.id}
+                        className={`d-flex align-items-start gap-2 p-2 rounded mb-1 ${isUnread ? 'bg-hover' : ''}`}
+                      >
+                        <i className="bi bi-exclamation-triangle-fill mt-1" style={{ color: 'var(--primary-accent)' }}></i>
+                        <div>
+                          <div className="text-white" style={{ fontSize: '0.85rem' }}><strong>{item.title}</strong></div>
+                          <small className="text-secondary d-block" style={{ fontSize: '0.75rem' }}>{item.desc}</small>
+                          <div className="text-muted" style={{ fontSize: '0.7rem' }}>{item.time}</div>
+                        </div>
+                      </div>
+                    );
+                  })
+                )}
               </div>
             </div>
           )}
@@ -233,10 +274,12 @@ export const Topbar = () => {
             className="user-capsule"
             onClick={() => setProfileOpen(!profileOpen)}
           >
-            <div className="user-avatar">AG</div>
+            <div className="user-avatar">
+              {user?.name ? user.name.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase() : 'IQ'}
+            </div>
             <div className="user-info-text d-none d-sm-flex">
-              <span className="user-name">{user.name}</span>
-              <span className="user-role">{user.role}</span>
+              <span className="user-name">{user?.name || 'Admin'}</span>
+              <span className="user-role">{user?.role || 'User'}</span>
             </div>
             <i className="bi bi-chevron-down text-muted small ms-1"></i>
           </div>
@@ -247,8 +290,8 @@ export const Topbar = () => {
               style={{ minWidth: 'min(220px, calc(100vw - 24px))', zIndex: 1050 }}
             >
               <div className="px-3 py-2 border-bottom border-secondary mb-1">
-                <div className="fw-semibold text-white">{user.name}</div>
-                <small className="text-secondary">{user.email}</small>
+                <div className="fw-semibold text-white">{user?.name || 'User'}</div>
+                <small className="text-secondary">{user?.email || ''}</small>
               </div>
               <button
                 type="button"

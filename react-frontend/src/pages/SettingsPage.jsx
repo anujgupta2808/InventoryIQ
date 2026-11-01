@@ -6,11 +6,11 @@ export const SettingsPage = () => {
   const [activeTab, setActiveTab] = useState('profile');
 
   // Form states
-  const [name, setName] = useState(user.name);
-  const [email, setEmail] = useState(user.email);
-  const [phone, setPhone] = useState(user.phone || '+91 98765 43210');
-  const [businessName, setBusinessName] = useState(user.businessName || 'InventoryIQ Retail & Wholesale');
-  const [currency, setCurrency] = useState('INR');
+  const [name, setName] = useState(user?.name || '');
+  const [email, setEmail] = useState(user?.email || '');
+  const [phone, setPhone] = useState(user?.phone || '+91 98765 43210');
+  const [businessName, setBusinessName] = useState(user?.businessName || 'InventoryIQ Store');
+  const [currency, setCurrency] = useState(user?.currency || 'INR');
 
   // Notification toggles
   const [emailAlerts, setEmailAlerts] = useState(true);
@@ -135,11 +135,11 @@ export const SettingsPage = () => {
                   className="rounded-circle d-flex align-items-center justify-content-center text-dark fw-bold fs-4 border border-warning"
                   style={{ width: 64, height: 64, background: '#F5B942' }}
                 >
-                  AG
+                  {user?.name ? user.name.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase() : 'IQ'}
                 </div>
                 <div>
-                  <h5 className="text-white fw-bold mb-0">{user.name}</h5>
-                  <span className="text-secondary small">{user.email}</span>
+                  <h5 className="text-white fw-bold mb-0">{user?.name || 'Administrator'}</h5>
+                  <span className="text-secondary small">{user?.email || ''}</span>
                 </div>
               </div>
 

@@ -33,17 +33,25 @@ export const AnalyticsPage = () => {
   const [timeFilter, setTimeFilter] = useState('30D');
 
   // Total Inventory Valuation (Cost & Retail)
-  const totalCostValuation = products.reduce((acc, p) => acc + (p.stock * (p.costPrice || 0)), 0);
-  const totalRetailValuation = products.reduce((acc, p) => acc + (p.stock * p.price), 0);
-  const projectedGrossMargin = totalRetailValuation - totalCostValuation;
+  const totalCostValuation = (products || []).reduce((acc, p) => acc + (p.stock * (p.costPrice || 0)), 0);
+  const totalRetailValuation = (products || []).reduce((acc, p) => acc + (p.stock * p.price), 0);
+  const projectedGrossMargin = Math.max(0, totalRetailValuation - totalCostValuation);
+
+  const topProduct = products && products.length > 0 ? products[0].name : 'No items yet';
+  const topProductTurnover = products && products.length > 0 ? '+12%' : '0%';
+
+  const hasSales = stats.totalSales > 0;
+  const hasTx = stats.totalSales > 0 || stats.totalPurchases > 0;
 
   // 1. Revenue Spline Data
   const splineData = {
-    labels: ['Oct 1', 'Oct 6', 'Oct 11', 'Oct 16', 'Oct 21', 'Oct 26', 'Oct 30'],
+    labels: ['Day 1', 'Day 6', 'Day 12', 'Day 18', 'Day 24', 'Day 28', 'Day 30'],
     datasets: [
       {
         label: 'Revenue Trend',
-        data: [28000, 49000, 36000, 68000, 45000, 92000, 84000],
+        data: hasSales
+          ? [0, 0, Math.round(stats.totalSales * 0.25), Math.round(stats.totalSales * 0.5), Math.round(stats.totalSales * 0.75), Math.round(stats.totalSales * 0.9), stats.totalSales]
+          : [0, 0, 0, 0, 0, 0, 0],
         borderColor: '#F5B942',
         borderWidth: 3,
         pointBackgroundColor: '#F5B942',
@@ -61,13 +69,23 @@ export const AnalyticsPage = () => {
     ]
   };
 
-  // 2. Sales by Category Doughnut Data (matching reference screenshot)
+  // 2. Category Distribution
+  const categoryCounts = {};
+  (products || []).forEach(p => {
+    categoryCounts[p.category] = (categoryCounts[p.category] || 0) + 1;
+  });
+  const catKeys = Object.keys(categoryCounts);
+  const palette = ['#F5B942', '#E5A92E', '#3B82F6', '#22C55E', '#EC4899', '#8B5CF6'];
+  const doughnutLabels = catKeys.length > 0 ? catKeys : ['No items'];
+  const doughnutValues = catKeys.length > 0 ? catKeys.map(k => categoryCounts[k]) : [1];
+  const doughnutColors = catKeys.length > 0 ? palette.slice(0, catKeys.length) : ['#353535'];
+
   const doughnutData = {
-    labels: ['Hardware', 'Electrical', 'Stationery', 'Puja & Herbal'],
+    labels: doughnutLabels,
     datasets: [
       {
-        data: [35, 30, 20, 15],
-        backgroundColor: ['#F5B942', '#E5A92E', '#3B82F6', '#22C55E'],
+        data: doughnutValues,
+        backgroundColor: doughnutColors,
         borderColor: '#1B1B1B',
         borderWidth: 3,
         hoverOffset: 6
@@ -81,13 +99,13 @@ export const AnalyticsPage = () => {
     datasets: [
       {
         label: 'Sales Revenue',
-        data: [85000, 98000, 110000, 105000, 125680],
+        data: hasTx ? [0, 0, 0, Math.round(stats.totalSales * 0.4), stats.totalSales] : [0, 0, 0, 0, 0],
         backgroundColor: '#F5B942',
         borderRadius: 6
       },
       {
         label: 'Purchases Cost',
-        data: [62000, 71000, 82000, 79000, 98420],
+        data: hasTx ? [0, 0, 0, Math.round(stats.totalPurchases * 0.5), stats.totalPurchases] : [0, 0, 0, 0, 0],
         backgroundColor: '#353535',
         borderRadius: 6
       }
@@ -122,7 +140,7 @@ export const AnalyticsPage = () => {
       ['Net Profit', `₹${stats.profit}`, stats.trends.profit],
       ['Inventory Retail Valuation', `₹${totalRetailValuation}`, '-'],
       ['Inventory Cost Valuation', `₹${totalCostValuation}`, '-'],
-      ['Projected Gross Margin', `₹${projectedGrossMargin}`, '34.2%']
+      ['Projected Gross Margin', `₹${projectedGrossMargin}`, '-']
     ];
     exportCSV('InventoryIQ_Analytics_Report', rows, headers);
   };
@@ -159,17 +177,17 @@ export const AnalyticsPage = () => {
         </div>
       </div>
 
-      {/* Top 3 High-Impact Cards (matching reference design) */}
+      {/* Top 3 High-Impact Cards */}
       <div className="row g-3 mb-4">
         <div className="col-12 col-md-4">
           <div className="stat-card">
             <span className="stat-label">Total Revenue</span>
             <div className="stat-value text-white mt-1">₹{stats.totalSales.toLocaleString('en-IN')}</div>
             <div className="d-flex align-items-center gap-2 mt-2">
-              <span className="trend-badge trend-up">
-                <i className="bi bi-arrow-up-right me-1"></i> +18%
+              <span className={`trend-badge ${stats.totalSales > 0 ? 'trend-up' : ''}`}>
+                <i className="bi bi-arrow-up-right me-1"></i> {stats.trends.sales}
               </span>
-              <span className="stat-subtext">mom growth</span>
+              <span className="stat-subtext">revenue growth</span>
             </div>
           </div>
         </div>
@@ -179,8 +197,8 @@ export const AnalyticsPage = () => {
             <span className="stat-label">Total Profit</span>
             <div className="stat-value text-gold mt-1">₹{stats.profit.toLocaleString('en-IN')}</div>
             <div className="d-flex align-items-center gap-2 mt-2">
-              <span className="trend-badge trend-up">
-                <i className="bi bi-arrow-up-right me-1"></i> +20%
+              <span className={`trend-badge ${stats.profit > 0 ? 'trend-up' : ''}`}>
+                <i className="bi bi-arrow-up-right me-1"></i> {stats.trends.profit}
               </span>
               <span className="stat-subtext">net margin</span>
             </div>
@@ -193,10 +211,10 @@ export const AnalyticsPage = () => {
               <span className="stat-label">Top Product</span>
               <i className="bi bi-trophy-fill text-gold fs-5"></i>
             </div>
-            <div className="stat-value text-white mt-1" style={{ fontSize: '1.4rem' }}>Screw Pack</div>
+            <div className="stat-value text-white mt-1 text-truncate" style={{ fontSize: '1.4rem' }}>{topProduct}</div>
             <div className="d-flex align-items-center gap-2 mt-2">
-              <span className="trend-badge trend-up">
-                <i className="bi bi-arrow-up-right me-1"></i> +51%
+              <span className={`trend-badge ${products.length > 0 ? 'trend-up' : ''}`}>
+                <i className="bi bi-arrow-up-right me-1"></i> {topProductTurnover}
               </span>
               <span className="stat-subtext">turnover velocity</span>
             </div>
@@ -214,7 +232,7 @@ export const AnalyticsPage = () => {
                 <h5 className="card-title text-white fw-bold mb-0">Revenue Trend</h5>
                 <small className="text-secondary">Rolling gross sales performance</small>
               </div>
-              <span className="badge badge-gold">Active</span>
+              <span className="badge badge-gold">{hasSales ? 'Live Data' : 'Awaiting Sales'}</span>
             </div>
             <div style={{ height: 260 }}>
               <Line data={splineData} options={chartOptions} />
@@ -227,8 +245,8 @@ export const AnalyticsPage = () => {
           <div className="card-custom h-100 p-4">
             <div className="d-flex justify-content-between align-items-center mb-3">
               <div>
-                <h5 className="card-title text-white fw-bold mb-0">Sales by Category</h5>
-                <small className="text-secondary">Percentage distribution</small>
+                <h5 className="card-title text-white fw-bold mb-0">Products by Category</h5>
+                <small className="text-secondary">Catalog inventory distribution</small>
               </div>
             </div>
             <div className="d-flex align-items-center justify-content-center" style={{ height: 200 }}>
@@ -243,22 +261,16 @@ export const AnalyticsPage = () => {
               />
             </div>
             <div className="row g-2 mt-3 text-center small">
-              <div className="col-6">
-                <span className="d-inline-block rounded-circle me-1" style={{ width: 8, height: 8, background: '#F5B942' }}></span>
-                <span className="text-secondary">Hardware <strong>35%</strong></span>
-              </div>
-              <div className="col-6">
-                <span className="d-inline-block rounded-circle me-1" style={{ width: 8, height: 8, background: '#E5A92E' }}></span>
-                <span className="text-secondary">Electrical <strong>30%</strong></span>
-              </div>
-              <div className="col-6">
-                <span className="d-inline-block rounded-circle me-1" style={{ width: 8, height: 8, background: '#3B82F6' }}></span>
-                <span className="text-secondary">Stationery <strong>20%</strong></span>
-              </div>
-              <div className="col-6">
-                <span className="d-inline-block rounded-circle me-1" style={{ width: 8, height: 8, background: '#22C55E' }}></span>
-                <span className="text-secondary">Others <strong>15%</strong></span>
-              </div>
+              {catKeys.length === 0 ? (
+                <div className="col-12 text-secondary py-2">No products added in catalog yet</div>
+              ) : (
+                catKeys.map((cat, idx) => (
+                  <div key={cat} className="col-6 text-truncate">
+                    <span className="d-inline-block rounded-circle me-1" style={{ width: 8, height: 8, background: doughnutColors[idx % doughnutColors.length] }}></span>
+                    <span className="text-secondary">{cat} <strong>{Math.round((categoryCounts[cat] / products.length) * 100)}%</strong></span>
+                  </div>
+                ))
+              )}
             </div>
           </div>
         </div>
@@ -316,7 +328,7 @@ export const AnalyticsPage = () => {
                 <span className="text-secondary small d-block">Projected Gross Margin</span>
                 <span className="fw-bold text-success fs-5">₹{projectedGrossMargin.toLocaleString('en-IN')}</span>
               </div>
-              <span className="badge badge-success">+34.2%</span>
+              <span className="badge badge-success">Live Margin</span>
             </div>
           </div>
         </div>
@@ -324,4 +336,3 @@ export const AnalyticsPage = () => {
     </div>
   );
 };
-

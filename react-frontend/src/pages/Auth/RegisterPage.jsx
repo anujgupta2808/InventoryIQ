@@ -2,13 +2,14 @@ import React, { useState } from 'react';
 import { useInventory } from '../../context/InventoryContext';
 
 export const RegisterPage = () => {
-  const { setCurrentPage, setIsAuthenticated, showToast, setUser } = useInventory();
+  const { setCurrentPage, register, showToast } = useInventory();
   const [fullName, setFullName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [agreeTerms, setAgreeTerms] = useState(false);
+  const [loading, setLoading] = useState(false);
 
   const calculateStrength = (pass) => {
     let score = 0;
@@ -33,15 +34,16 @@ export const RegisterPage = () => {
       showToast('Validation Error', 'Passwords do not match.', 'danger');
       return;
     }
-    if (password.length < 8) {
-      showToast('Validation Error', 'Password must be at least 8 characters.', 'danger');
+    if (password.length < 6) {
+      showToast('Validation Error', 'Password must be at least 6 characters.', 'danger');
       return;
     }
 
-    setUser(prev => ({ ...prev, name: fullName, email }));
-    setIsAuthenticated(true);
-    setCurrentPage('dashboard');
-    showToast('Account Created!', `Welcome to InventoryIQ, ${fullName}!`);
+    setLoading(true);
+    setTimeout(() => {
+      register({ fullName, email, password });
+      setLoading(false);
+    }, 250);
   };
 
   return (
@@ -50,7 +52,7 @@ export const RegisterPage = () => {
         {/* Left Side: Brand Showcase */}
         <div className="auth-showcase">
           <div className="brand-wrapper">
-            <img src="/logo.svg" alt="InventoryIQ" className="brand-logo-img" />
+            <img src="./logo.svg" alt="InventoryIQ" className="brand-logo-img" />
             <div className="brand-text-block">
               <span className="brand-name">Inventory<span>IQ</span></span>
               <span className="brand-tagline">Smart Inventory. Smarter Business.</span>
@@ -59,8 +61,8 @@ export const RegisterPage = () => {
 
           <div className="auth-showcase-hero">
             <h2 className="auth-showcase-title">Start Your Journey with InventoryIQ</h2>
-            <p className="auth-showcase-desc">Create your account and manage your inventory smarter.</p>
-            <img src="/hero-register.svg" alt="InventoryIQ Registration" className="auth-showcase-img" />
+            <p className="auth-showcase-desc">Create your business workspace and start managing inventory, sales, and suppliers with ease.</p>
+            <img src="./hero-register.svg" alt="InventoryIQ Registration" className="auth-showcase-img" />
           </div>
 
           <div className="d-flex align-items-center justify-content-between text-muted" style={{ fontSize: '0.75rem' }}>
@@ -73,7 +75,7 @@ export const RegisterPage = () => {
         <div className="auth-card-panel">
           <div className="auth-header">
             <h3 className="auth-title">Create Account</h3>
-            <p className="auth-subtitle">Join us today!</p>
+            <p className="auth-subtitle">Join us today to set up your business catalog!</p>
           </div>
 
           <form onSubmit={handleSubmit}>
@@ -118,7 +120,7 @@ export const RegisterPage = () => {
                   type={showPassword ? 'text' : 'password'}
                   required
                   className="form-control-iq"
-                  placeholder="At least 8 characters"
+                  placeholder="At least 6 characters"
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                 />
@@ -175,8 +177,19 @@ export const RegisterPage = () => {
               </label>
             </div>
 
-            <button type="submit" className="btn-gold w-100 py-2 fw-semibold mb-3">
-              Register Account
+            <button
+              type="submit"
+              className="btn-gold w-100 py-2 fw-semibold mb-3"
+              disabled={loading}
+            >
+              {loading ? (
+                <>
+                  <span className="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>
+                  Setting Up Workspace...
+                </>
+              ) : (
+                'Register Account'
+              )}
             </button>
 
             <div className="text-center text-secondary small">

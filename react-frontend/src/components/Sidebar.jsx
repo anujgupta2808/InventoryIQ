@@ -10,8 +10,7 @@ export const Sidebar = () => {
     mobileMenuOpen,
     setMobileMenuOpen,
     lowStockItems,
-    setIsAuthenticated,
-    showToast
+    logout
   } = useInventory();
 
   // Clean, uncluttered list matching the Stockly reference screenshot exactly
@@ -38,9 +37,7 @@ export const Sidebar = () => {
   };
 
   const handleLogout = () => {
-    setIsAuthenticated(false);
-    setCurrentPage('login');
-    showToast('Signed Out', 'You have been safely signed out.', 'info');
+    logout();
   };
 
   return (
@@ -68,7 +65,7 @@ export const Sidebar = () => {
                 title="InventoryIQ Dashboard"
                 style={{ cursor: 'pointer' }}
               >
-                <img src="/logo.svg" alt="InventoryIQ" className="brand-logo-img" />
+                <img src="./logo.svg" alt="InventoryIQ" className="brand-logo-img" />
                 <div className="brand-text-block">
                   <span className="brand-name">Inventory<span>IQ</span></span>
                   <span className="brand-tagline">Smart Inventory. Smarter Business.</span>
@@ -89,7 +86,7 @@ export const Sidebar = () => {
           ) : (
             <div className="d-flex flex-column align-items-center justify-content-center w-100 py-2 gap-2">
               <img
-                src="/logo.svg"
+                src="./logo.svg"
                 alt="InventoryIQ"
                 className="brand-logo-img cursor-pointer"
                 onClick={() => setSidebarCollapsed(false)}

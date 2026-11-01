@@ -87,36 +87,42 @@ export const SecurityPage = () => {
         <small className="text-secondary d-block mb-3">Devices currently logged into this InventoryIQ tenant</small>
 
         <div className="d-flex flex-column gap-3">
-          {sessions.map(s => (
-            <div
-              key={s.id}
-              className="d-flex align-items-center justify-content-between p-3 rounded bg-secondary-dark flex-wrap gap-2"
-            >
-              <div className="d-flex align-items-center gap-3">
-                <div className="text-gold fs-3">
-                  <i className={`bi ${s.device.includes('iPhone') ? 'bi-phone' : 'bi-laptop'}`}></i>
-                </div>
-                <div>
-                  <div className="d-flex align-items-center gap-2">
-                    <span className="text-white fw-medium">{s.device}</span>
-                    {s.current && <span className="badge badge-gold" style={{ fontSize: '0.7rem' }}>Current Device</span>}
-                  </div>
-                  <small className="text-secondary d-block">
-                    {s.ip} • {s.location} • {s.lastActive}
-                  </small>
-                </div>
-              </div>
-              {!s.current && (
-                <button
-                  type="button"
-                  className="btn btn-sm btn-outline-danger"
-                  onClick={() => handleRevoke(s)}
-                >
-                  Revoke Access
-                </button>
-              )}
+          {sessions.length === 0 ? (
+            <div className="p-3 rounded bg-secondary-dark text-secondary small">
+              No active device sessions recorded.
             </div>
-          ))}
+          ) : (
+            sessions.map(s => (
+              <div
+                key={s.id}
+                className="d-flex align-items-center justify-content-between p-3 rounded bg-secondary-dark flex-wrap gap-2"
+              >
+                <div className="d-flex align-items-center gap-3">
+                  <div className="text-gold fs-3">
+                    <i className={`bi ${s.device.includes('iPhone') || s.device.includes('Mobile') ? 'bi-phone' : 'bi-laptop'}`}></i>
+                  </div>
+                  <div>
+                    <div className="d-flex align-items-center gap-2">
+                      <span className="text-white fw-medium">{s.device}</span>
+                      {s.current && <span className="badge badge-gold" style={{ fontSize: '0.7rem' }}>Current Device</span>}
+                    </div>
+                    <small className="text-secondary d-block">
+                      {s.ip} • {s.location} • {s.lastActive}
+                    </small>
+                  </div>
+                </div>
+                {!s.current && (
+                  <button
+                    type="button"
+                    className="btn btn-sm btn-outline-danger"
+                    onClick={() => handleRevoke(s)}
+                  >
+                    Revoke Access
+                  </button>
+                )}
+              </div>
+            ))
+          )}
         </div>
       </div>
 
@@ -152,21 +158,29 @@ export const SecurityPage = () => {
               </tr>
             </thead>
             <tbody>
-              {filteredLogs.map(log => (
-                <tr key={log.id} className="border-bottom border-secondary">
-                  <td className="fw-medium text-white">{log.action}</td>
-                  <td>{log.user}</td>
-                  <td><span className="badge badge-secondary">{log.role}</span></td>
-                  <td className="text-secondary">{log.timestamp}</td>
-                  <td className="text-muted small">{log.ip}</td>
-                  <td className="text-secondary small">{log.details || '-'}</td>
-                  <td>
-                    <span className={`badge ${log.status === 'Success' ? 'badge-success' : 'badge-danger'}`}>
-                      {log.status}
-                    </span>
+              {filteredLogs.length === 0 ? (
+                <tr>
+                  <td colSpan="7" className="text-center py-4 text-secondary">
+                    No security audit logs recorded yet.
                   </td>
                 </tr>
-              ))}
+              ) : (
+                filteredLogs.map(log => (
+                  <tr key={log.id} className="border-bottom border-secondary">
+                    <td className="fw-medium text-white">{log.action}</td>
+                    <td>{log.user}</td>
+                    <td><span className="badge badge-secondary">{log.role}</span></td>
+                    <td className="text-secondary">{log.timestamp}</td>
+                    <td className="text-muted small">{log.ip}</td>
+                    <td className="text-secondary small">{log.details || '-'}</td>
+                    <td>
+                      <span className={`badge ${log.status === 'Success' ? 'badge-success' : 'badge-danger'}`}>
+                        {log.status}
+                      </span>
+                    </td>
+                  </tr>
+                ))
+              )}
             </tbody>
           </table>
         </div>

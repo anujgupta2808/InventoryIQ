@@ -1,10 +1,10 @@
 import React, { useState, useMemo } from 'react';
 import { useInventory } from '../context/InventoryContext';
-import { INITIAL_CATEGORIES } from '../data/seedData';
 
 export const InventoryPage = () => {
   const {
     products,
+    categories,
     suppliers,
     addProduct,
     updateProduct,
@@ -13,6 +13,11 @@ export const InventoryPage = () => {
     exportCSV,
     lowStockItems
   } = useInventory();
+
+  // Dynamic Categories from state & products
+  const allCategories = useMemo(() => {
+    return Array.from(new Set([...categories, ...products.map(p => p.category).filter(Boolean)]));
+  }, [categories, products]);
 
   // Search & Filters
   const [searchTerm, setSearchTerm] = useState('');
@@ -31,13 +36,13 @@ export const InventoryPage = () => {
   const initialFormState = {
     name: '',
     sku: '',
-    category: INITIAL_CATEGORIES[0],
+    category: allCategories[0] || '',
     stock: '',
     minStock: '20',
     price: '',
     costPrice: '',
     unit: 'Piece',
-    supplierId: suppliers[0]?.id || 1
+    supplierId: suppliers[0]?.id || ''
   };
   const [formData, setFormData] = useState(initialFormState);
 
@@ -237,7 +242,7 @@ export const InventoryPage = () => {
               onChange={(e) => { setSelectedCategory(e.target.value); setCurrentPageNum(1); }}
             >
               <option value="All">All Categories ({products.length})</option>
-              {INITIAL_CATEGORIES.map(cat => (
+              {allCategories.map(cat => (
                 <option key={cat} value={cat}>{cat}</option>
               ))}
             </select>
@@ -297,8 +302,21 @@ export const InventoryPage = () => {
               {paginatedProducts.length === 0 ? (
                 <tr>
                   <td colSpan="7" className="text-center py-5 text-secondary">
-                    <i className="bi bi-inbox fs-2 d-block mb-2 text-muted"></i>
-                    No products matched your criteria.
+                    {products.length === 0 ? (
+                      <div className="py-3">
+                        <i className="bi bi-box-seam fs-2 d-block mb-2 text-muted"></i>
+                        <h6 className="text-white mb-1">No products in inventory yet</h6>
+                        <p className="text-secondary small mb-3">Build your catalog by adding your first product with stock and pricing.</p>
+                        <button type="button" className="btn btn-gold btn-sm" onClick={handleOpenAdd}>
+                          <i className="bi bi-plus-lg me-1"></i> Add First Product
+                        </button>
+                      </div>
+                    ) : (
+                      <>
+                        <i className="bi bi-inbox fs-2 d-block mb-2 text-muted"></i>
+                        No products matched your search or filter criteria.
+                      </>
+                    )}
                   </td>
                 </tr>
               ) : (
@@ -460,15 +478,20 @@ export const InventoryPage = () => {
 
                 <div className="col-12 col-md-6">
                   <label className="form-label text-secondary small">Category *</label>
-                  <select
-                    className="form-select bg-input border-secondary text-white"
+                  <input
+                    type="text"
+                    required
+                    list="categoryDataList"
+                    className="form-control bg-input border-secondary text-white"
+                    placeholder="e.g. Electronics, Hardware, Apparel..."
                     value={formData.category}
                     onChange={(e) => setFormData({ ...formData, category: e.target.value })}
-                  >
-                    {INITIAL_CATEGORIES.map(c => (
-                      <option key={c} value={c}>{c}</option>
+                  />
+                  <datalist id="categoryDataList">
+                    {allCategories.map(c => (
+                      <option key={c} value={c} />
                     ))}
-                  </select>
+                  </datalist>
                 </div>
                 <div className="col-12 col-md-6">
                   <label className="form-label text-secondary small">Unit of Measure</label>
@@ -543,9 +566,13 @@ export const InventoryPage = () => {
                     value={formData.supplierId}
                     onChange={(e) => setFormData({ ...formData, supplierId: e.target.value })}
                   >
-                    {suppliers.map(s => (
-                      <option key={s.id} value={s.id}>{s.name} ({s.contactPerson})</option>
-                    ))}
+                    {suppliers.length === 0 ? (
+                      <option value="">No suppliers added yet (Optional)</option>
+                    ) : (
+                      suppliers.map(s => (
+                        <option key={s.id} value={s.id}>{s.name} ({s.contactPerson || s.phone})</option>
+                      ))
+                    )}
                   </select>
                 </div>
               </div>

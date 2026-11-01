@@ -4,10 +4,10 @@ import { useInventory } from '../context/InventoryContext';
 export const ProfilePage = () => {
   const { user, setUser, showToast } = useInventory();
 
-  const [name, setName] = useState(user.name);
-  const [email, setEmail] = useState(user.email);
-  const [phone, setPhone] = useState(user.phone || '+91 98765 43210');
-  const [role] = useState(user.role);
+  const [name, setName] = useState(user?.name || '');
+  const [email, setEmail] = useState(user?.email || '');
+  const [phone, setPhone] = useState(user?.phone || '+91 98765 43210');
+  const [role] = useState(user?.role || 'Admin');
 
   // Password fields
   const [currentPassword, setCurrentPassword] = useState('');
@@ -62,11 +62,11 @@ export const ProfilePage = () => {
               className="rounded-circle d-flex align-items-center justify-content-center text-dark fw-bold fs-2 border border-warning mx-auto mb-3 shadow"
               style={{ width: 88, height: 88, background: '#F5B942' }}
             >
-              AG
+              {user?.name ? user.name.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase() : 'IQ'}
             </div>
-            <h4 className="text-white fw-bold mb-1">{user.name}</h4>
+            <h4 className="text-white fw-bold mb-1">{user?.name || 'Administrator'}</h4>
             <span className="badge badge-gold mb-2">{role}</span>
-            <p className="text-secondary small mb-3">{user.email}</p>
+            <p className="text-secondary small mb-3">{user?.email || ''}</p>
 
             <div className="p-3 bg-secondary-dark rounded text-start small">
               <div className="d-flex justify-content-between py-1 border-bottom border-secondary">

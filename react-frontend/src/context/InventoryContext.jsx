@@ -7,6 +7,7 @@ import {
   INITIAL_CUSTOMERS,
   INITIAL_SESSIONS,
   INITIAL_AUDIT_LOGS,
+  DEFAULT_USERS,
   INITIAL_USER
 } from '../data/seedData';
 
@@ -21,25 +22,74 @@ export const useInventory = () => {
 };
 
 export const InventoryProvider = ({ children }) => {
-  // Helper to load localStorage with seed fallback
+  // Session Retrieval Helper
+  const getStoredSession = () => {
+    try {
+      const sessionStr = localStorage.getItem('iq_v3_session') || sessionStorage.getItem('iq_v3_session');
+      if (sessionStr) {
+        const parsed = JSON.parse(sessionStr);
+        if (parsed && parsed.token && parsed.user) {
+          return parsed;
+        }
+      }
+      return null;
+    } catch {
+      return null;
+    }
+  };
+
+  // Registered Users Helper
+  const getStoredUsers = () => {
+    try {
+      const usersStr = localStorage.getItem('iq_v3_users');
+      return usersStr ? JSON.parse(usersStr) : DEFAULT_USERS;
+    } catch {
+      return DEFAULT_USERS;
+    }
+  };
+
+  // Helper to load localStorage with fallback
   const loadState = (key, initial) => {
     try {
-      const saved = localStorage.getItem(`iq_v2_${key}`);
+      const saved = localStorage.getItem(`iq_v3_${key}`);
       return saved ? JSON.parse(saved) : initial;
     } catch {
       return initial;
     }
   };
 
+  // User Accounts & Authentication State
+  const [users, setUsers] = useState(getStoredUsers);
+  const initialSession = getStoredSession();
+  const [isAuthenticated, setIsAuthenticated] = useState(Boolean(initialSession));
+  const [user, setUser] = useState(initialSession ? initialSession.user : null);
+
   // Central Application Data States
+  const [categories, setCategories] = useState(() => {
+    const saved = loadState('categories', []);
+    return Array.isArray(saved) ? saved : [];
+  });
   const [products, setProducts] = useState(() => loadState('products', INITIAL_PRODUCTS));
   const [sales, setSales] = useState(() => loadState('sales', INITIAL_SALES));
   const [purchases, setPurchases] = useState(() => loadState('purchases', INITIAL_PURCHASES));
   const [suppliers, setSuppliers] = useState(() => loadState('suppliers', INITIAL_SUPPLIERS));
   const [customers, setCustomers] = useState(() => loadState('customers', INITIAL_CUSTOMERS));
-  const [sessions, setSessions] = useState(() => loadState('sessions', INITIAL_SESSIONS));
+  const [sessions, setSessions] = useState(() => {
+    const saved = loadState('sessions', INITIAL_SESSIONS);
+    if (saved && saved.length > 0) return saved;
+    if (initialSession) {
+      return [{
+        id: 'SES-' + Math.floor(1000 + Math.random() * 9000),
+        device: typeof navigator !== 'undefined' && /Mobi|Android/i.test(navigator.userAgent) ? 'Mobile Browser' : 'Chrome / Desktop',
+        ip: '103.21.244.18',
+        location: 'India',
+        lastActive: 'Just now',
+        current: true
+      }];
+    }
+    return [];
+  });
   const [auditLogs, setAuditLogs] = useState(() => loadState('auditLogs', INITIAL_AUDIT_LOGS));
-  const [user, setUser] = useState(() => loadState('user', INITIAL_USER));
 
   // Theme State ('dark' | 'light')
   const [theme, setTheme] = useState(() => {
@@ -68,9 +118,11 @@ export const InventoryProvider = ({ children }) => {
     });
   };
 
-  // Navigation & View State
-  const [currentPage, setCurrentPage] = useState('dashboard');
-  const [isAuthenticated, setIsAuthenticated] = useState(true);
+  // Navigation & View State (denied to dashboard unless authenticated)
+  const [currentPage, setCurrentPage] = useState(() => {
+    return initialSession ? 'dashboard' : 'login';
+  });
+
   const [sidebarCollapsed, setSidebarCollapsed] = useState(() => {
     if (typeof window !== 'undefined') {
       return window.innerWidth >= 768 && window.innerWidth < 1024;
@@ -80,7 +132,7 @@ export const InventoryProvider = ({ children }) => {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [isGlobalSearchOpen, setIsGlobalSearchOpen] = useState(false);
 
-  // Responsive Breakpoint Handler across Mobile (<768px), Tablet (768px-1023px), Laptop/Desktop (>=1024px)
+  // Responsive Breakpoint Handler
   useEffect(() => {
     let prevWidth = window.innerWidth;
 
@@ -127,51 +179,57 @@ export const InventoryProvider = ({ children }) => {
   // Sync to LocalStorage
   useEffect(() => {
     try {
-      localStorage.setItem('iq_v2_products', JSON.stringify(products));
+      localStorage.setItem('iq_v3_users', JSON.stringify(users));
+    } catch (e) { console.warn(e); }
+  }, [users]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem('iq_v3_categories', JSON.stringify(categories));
+    } catch (e) { console.warn(e); }
+  }, [categories]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem('iq_v3_products', JSON.stringify(products));
     } catch (e) { console.warn(e); }
   }, [products]);
 
   useEffect(() => {
     try {
-      localStorage.setItem('iq_v2_sales', JSON.stringify(sales));
+      localStorage.setItem('iq_v3_sales', JSON.stringify(sales));
     } catch (e) { console.warn(e); }
   }, [sales]);
 
   useEffect(() => {
     try {
-      localStorage.setItem('iq_v2_purchases', JSON.stringify(purchases));
+      localStorage.setItem('iq_v3_purchases', JSON.stringify(purchases));
     } catch (e) { console.warn(e); }
   }, [purchases]);
 
   useEffect(() => {
     try {
-      localStorage.setItem('iq_v2_suppliers', JSON.stringify(suppliers));
+      localStorage.setItem('iq_v3_suppliers', JSON.stringify(suppliers));
     } catch (e) { console.warn(e); }
   }, [suppliers]);
 
   useEffect(() => {
     try {
-      localStorage.setItem('iq_v2_customers', JSON.stringify(customers));
+      localStorage.setItem('iq_v3_customers', JSON.stringify(customers));
     } catch (e) { console.warn(e); }
   }, [customers]);
 
   useEffect(() => {
     try {
-      localStorage.setItem('iq_v2_sessions', JSON.stringify(sessions));
+      localStorage.setItem('iq_v3_sessions', JSON.stringify(sessions));
     } catch (e) { console.warn(e); }
   }, [sessions]);
 
   useEffect(() => {
     try {
-      localStorage.setItem('iq_v2_auditLogs', JSON.stringify(auditLogs));
+      localStorage.setItem('iq_v3_auditLogs', JSON.stringify(auditLogs));
     } catch (e) { console.warn(e); }
   }, [auditLogs]);
-
-  useEffect(() => {
-    try {
-      localStorage.setItem('iq_v2_user', JSON.stringify(user));
-    } catch (e) { console.warn(e); }
-  }, [user]);
 
   // Toast Helper
   const showToast = (title, message, type = 'success') => {
@@ -206,20 +264,179 @@ export const InventoryProvider = ({ children }) => {
   };
 
   // Audit Logging Helper
-  const addAuditLog = (action, details, status = 'Success') => {
+  const addAuditLog = (action, details, status = 'Success', actorName = null, actorRole = null) => {
     const now = new Date();
     const timeStr = `Today, ${now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
     const newLog = {
       id: Date.now(),
       action,
-      user: user.name,
-      role: user.role,
+      user: actorName || user?.name || 'Administrator',
+      role: actorRole || user?.role || 'Admin',
       timestamp: timeStr,
       ip: '103.21.244.18',
       details,
       status
     };
     setAuditLogs(prev => [newLog, ...prev]);
+  };
+
+  // --------------------------------------------------------------------------
+  // AUTHENTICATION & SESSION MANAGEMENT
+  // --------------------------------------------------------------------------
+
+  // Login with credentials & session persistence
+  const login = ({ email, password, rememberMe = true }) => {
+    const cleanEmail = String(email || '').trim().toLowerCase();
+    const cleanPass = String(password || '').trim();
+
+    const matchedUser = users.find(u => u.email.toLowerCase() === cleanEmail);
+
+    if (!matchedUser) {
+      showToast('Login Failed', 'Account not found with this email address.', 'danger');
+      return { success: false, message: 'Account not found.' };
+    }
+
+    if (matchedUser.password !== cleanPass) {
+      showToast('Login Failed', 'Incorrect password. Please try again.', 'danger');
+      return { success: false, message: 'Invalid password.' };
+    }
+
+    // Create session object
+    const sessionData = {
+      user: matchedUser,
+      token: 'iq_sess_' + Date.now() + '_' + Math.random().toString(36).substring(2, 9),
+      loginTime: new Date().toISOString()
+    };
+
+    // Persist session
+    try {
+      if (rememberMe) {
+        localStorage.setItem('iq_v3_session', JSON.stringify(sessionData));
+        sessionStorage.removeItem('iq_v3_session');
+      } else {
+        sessionStorage.setItem('iq_v3_session', JSON.stringify(sessionData));
+        localStorage.removeItem('iq_v3_session');
+      }
+    } catch (e) {
+      console.warn('Session storage error:', e);
+    }
+
+    // Set active device session
+    const currentDeviceSession = {
+      id: 'SES-' + Math.floor(1000 + Math.random() * 9000),
+      device: typeof navigator !== 'undefined' && /Mobi|Android/i.test(navigator.userAgent) ? 'Mobile Browser' : 'Chrome / Desktop',
+      ip: '103.21.244.18',
+      location: 'India',
+      lastActive: 'Just now',
+      current: true
+    };
+    setSessions(prev => [currentDeviceSession, ...prev.map(s => ({ ...s, current: false }))]);
+
+    setUser(matchedUser);
+    setIsAuthenticated(true);
+    setCurrentPage('dashboard');
+    addAuditLog('User Login', `User ${matchedUser.name} signed in successfully`, 'Success', matchedUser.name, matchedUser.role);
+    showToast('Welcome Back!', `Logged in as ${matchedUser.name} (${matchedUser.role}).`);
+
+    return { success: true, user: matchedUser };
+  };
+
+  // Registration & immediate session creation
+  const register = ({ fullName, email, password }) => {
+    const cleanEmail = String(email || '').trim().toLowerCase();
+    const cleanName = String(fullName || '').trim();
+    const cleanPass = String(password || '').trim();
+
+    if (!cleanName || !cleanEmail || !cleanPass) {
+      showToast('Validation Error', 'Please complete all required fields.', 'danger');
+      return { success: false, message: 'Missing fields.' };
+    }
+
+    // Check duplicate email
+    const exists = users.some(u => u.email.toLowerCase() === cleanEmail);
+    if (exists) {
+      showToast('Registration Error', 'An account with this email already exists. Please log in.', 'warning');
+      return { success: false, message: 'Email already registered.' };
+    }
+
+    const newUser = {
+      id: Date.now(),
+      name: cleanName,
+      email: cleanEmail,
+      password: cleanPass,
+      role: 'Admin',
+      businessName: `${cleanName}'s Store`,
+      phone: '',
+      currency: 'INR',
+      currencySymbol: '₹'
+    };
+
+    const updatedUsers = [...users, newUser];
+    setUsers(updatedUsers);
+
+    // Save session
+    const sessionData = {
+      user: newUser,
+      token: 'iq_sess_' + Date.now() + '_' + Math.random().toString(36).substring(2, 9),
+      loginTime: new Date().toISOString()
+    };
+
+    try {
+      localStorage.setItem('iq_v3_session', JSON.stringify(sessionData));
+    } catch (e) {
+      console.warn('Session write error:', e);
+    }
+
+    const currentDeviceSession = {
+      id: 'SES-' + Math.floor(1000 + Math.random() * 9000),
+      device: typeof navigator !== 'undefined' && /Mobi|Android/i.test(navigator.userAgent) ? 'Mobile Browser' : 'Chrome / Desktop',
+      ip: '103.21.244.18',
+      location: 'India',
+      lastActive: 'Just now',
+      current: true
+    };
+    setSessions([currentDeviceSession]);
+
+    setUser(newUser);
+    setIsAuthenticated(true);
+    setCurrentPage('dashboard');
+    addAuditLog('User Registered', `Created new tenant account for ${newUser.name}`, 'Success', newUser.name, newUser.role);
+    showToast('Account Created!', `Welcome to InventoryIQ, ${newUser.name}! Your workspace is ready.`);
+
+    return { success: true, user: newUser };
+  };
+
+  // Logout & session termination
+  const logout = () => {
+    try {
+      localStorage.removeItem('iq_v3_session');
+      sessionStorage.removeItem('iq_v3_session');
+    } catch (e) {
+      console.warn(e);
+    }
+
+    if (user) {
+      addAuditLog('User Logout', `User ${user.name} logged out`);
+    }
+
+    setIsAuthenticated(false);
+    setUser(null);
+    setCurrentPage('login');
+    showToast('Signed Out', 'You have been safely signed out.', 'info');
+  };
+
+  // --------------------------------------------------------------------------
+  // BUSINESS OPERATIONS & CRUD
+  // --------------------------------------------------------------------------
+
+  // Categories CRUD
+  const addCategory = (categoryName) => {
+    const trimmed = String(categoryName || '').trim();
+    if (!trimmed) return;
+    setCategories(prev => {
+      if (prev.some(c => c.toLowerCase() === trimmed.toLowerCase())) return prev;
+      return [...prev, trimmed];
+    });
   };
 
   // Product CRUD
@@ -229,9 +446,14 @@ export const InventoryProvider = ({ children }) => {
     const status = stock <= 0 ? 'Out of Stock' : (stock <= minStock ? 'Low Stock' : 'In Stock');
     const newId = products.length > 0 ? Math.max(...products.map(p => p.id)) + 1 : 1;
     
+    if (prodData.category && String(prodData.category).trim()) {
+      addCategory(String(prodData.category).trim());
+    }
+
     const newProduct = {
       ...prodData,
       id: newId,
+      category: String(prodData.category || 'General').trim(),
       stock,
       minStock,
       price: Number(prodData.price) || 0,
@@ -246,6 +468,9 @@ export const InventoryProvider = ({ children }) => {
   };
 
   const updateProduct = (id, prodData) => {
+    if (prodData.category && String(prodData.category).trim()) {
+      addCategory(String(prodData.category).trim());
+    }
     setProducts(prev => prev.map(p => {
       if (p.id === Number(id)) {
         const stock = prodData.stock !== undefined ? Number(prodData.stock) : p.stock;
@@ -254,6 +479,7 @@ export const InventoryProvider = ({ children }) => {
         return {
           ...p,
           ...prodData,
+          category: prodData.category !== undefined ? String(prodData.category).trim() : p.category,
           stock,
           minStock,
           price: prodData.price !== undefined ? Number(prodData.price) : p.price,
@@ -274,20 +500,14 @@ export const InventoryProvider = ({ children }) => {
     showToast('Product Deleted', 'The product has been removed from catalog.', 'warning');
   };
 
-  // Sales Creation & Stock Deduction
+  // Sales Creation, Customer Auto-Creation/Sync & Stock Deduction
   const createSale = (saleData) => {
-    const newSaleId = `S-${1046 + sales.length}`;
+    const newSaleId = `S-${1001 + sales.length}`;
     const now = new Date();
     const dateStr = now.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+    const saleAmount = Number(saleData.amount) || 0;
 
-    const newSale = {
-      id: newSaleId,
-      date: dateStr,
-      ...saleData,
-      status: 'Completed'
-    };
-
-    // Deduct stock for each purchased line item
+    // 1. Deduct stock for each purchased line item from Inventory
     if (saleData.items && saleData.items.length > 0) {
       setProducts(prev => prev.map(p => {
         const line = saleData.items.find(i => Number(i.productId) === p.id);
@@ -300,54 +520,195 @@ export const InventoryProvider = ({ children }) => {
       }));
     }
 
-    // Update customer spending & order count if customer matched
-    if (saleData.customerId) {
+    // 2. Auto-upload / sync customer in Customer CRM
+    let assignedCustomerId = saleData.customerId;
+    const custName = (saleData.customerName || '').trim();
+    const custPhone = (saleData.customerPhone || '').trim();
+    const custEmail = (saleData.customerEmail || '').trim();
+    const custAddress = (saleData.customerAddress || '').trim();
+
+    if (assignedCustomerId) {
+      // Existing customer: update spending and order count
       setCustomers(prev => prev.map(c => {
-        if (c.id === Number(saleData.customerId)) {
+        if (c.id === Number(assignedCustomerId)) {
           return {
             ...c,
-            totalSpending: c.totalSpending + Number(saleData.amount),
-            totalOrders: c.totalOrders + 1
+            totalSpending: (Number(c.totalSpending) || 0) + saleAmount,
+            totalOrders: (Number(c.totalOrders) || 0) + 1
           };
         }
         return c;
       }));
+    } else if (custName) {
+      // Check if customer already exists by phone or name
+      setCustomers(prev => {
+        const existingIdx = prev.findIndex(c => 
+          (custPhone && custPhone !== 'N/A' && c.phone === custPhone) ||
+          (c.name.toLowerCase() === custName.toLowerCase())
+        );
+
+        if (existingIdx >= 0) {
+          assignedCustomerId = prev[existingIdx].id;
+          return prev.map((c, idx) => {
+            if (idx === existingIdx) {
+              return {
+                ...c,
+                totalSpending: (Number(c.totalSpending) || 0) + saleAmount,
+                totalOrders: (Number(c.totalOrders) || 0) + 1,
+                phone: (c.phone === 'N/A' || !c.phone) && custPhone ? custPhone : c.phone,
+                email: !c.email && custEmail ? custEmail : c.email,
+                address: !c.address && custAddress ? custAddress : c.address
+              };
+            }
+            return c;
+          });
+        } else {
+          // Auto-create new customer in Customer CRM!
+          const newId = prev.length > 0 ? Math.max(...prev.map(c => c.id)) + 1 : 1;
+          assignedCustomerId = newId;
+          const newCustomer = {
+            id: newId,
+            name: custName,
+            phone: custPhone || 'N/A',
+            email: custEmail || '',
+            address: custAddress || 'Store Customer',
+            totalSpending: saleAmount,
+            totalOrders: 1,
+            status: 'Active'
+          };
+          addAuditLog('Customer Auto-Registered', `Customer ${newCustomer.name} auto-added to CRM from Sale #${newSaleId}`);
+          return [newCustomer, ...prev];
+        }
+      });
     }
+
+    const newSale = {
+      id: newSaleId,
+      date: dateStr,
+      ...saleData,
+      customerId: assignedCustomerId,
+      status: 'Completed'
+    };
 
     setSales(prev => [newSale, ...prev]);
     addAuditLog('Sale Created', `Sale #${newSaleId} – ₹${Number(saleData.amount).toLocaleString('en-IN')}`);
-    showToast('Sale Completed', `Invoice #${newSaleId} created and inventory updated.`);
+    showToast('Sale Completed', `Invoice #${newSaleId} generated, customer data synced, and inventory stock deducted.`);
     return newSale;
   };
 
-  // Purchases PO Creation & Auto Stocking
+  // Purchases PO Creation, Supplier Auto-Sync & Inventory Auto-Stocking/Creation
   const createPurchase = (poData) => {
-    const newPoId = `P-${2046 + purchases.length}`;
+    const newPoId = `P-${2001 + purchases.length}`;
     const now = new Date();
     const dateStr = now.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+    const poAmount = Number(poData.amount) || 0;
+
+    // 1. Auto-upload / sync supplier in Contact / Suppliers
+    let finalSupplierId = poData.supplierId;
+    let finalSupplierName = (poData.supplierName || '').trim();
+
+    if (poData.newSupplierData) {
+      // User entered a new supplier in the PO modal
+      const supp = poData.newSupplierData;
+      finalSupplierName = (supp.name || '').trim();
+      const newSuppId = suppliers.length > 0 ? Math.max(...suppliers.map(s => s.id)) + 1 : 1;
+      finalSupplierId = newSuppId;
+
+      const newSupplier = {
+        id: newSuppId,
+        name: finalSupplierName,
+        contactPerson: supp.contactPerson || '',
+        phone: supp.phone || '',
+        email: supp.email || '',
+        address: supp.address || '',
+        status: 'Active',
+        totalPurchases: `₹${poAmount.toLocaleString('en-IN')}`
+      };
+
+      setSuppliers(prev => [newSupplier, ...prev]);
+      addAuditLog('Contact Auto-Registered', `Supplier ${newSupplier.name} auto-registered from PO #${newPoId}`);
+    } else if (finalSupplierId) {
+      // Existing supplier selected: update their totalPurchases
+      setSuppliers(prev => prev.map(s => {
+        if (s.id === Number(finalSupplierId)) {
+          const currentTotal = Number(String(s.totalPurchases || '0').replace(/[^0-9]/g, '')) || 0;
+          const newTotal = currentTotal + poAmount;
+          return {
+            ...s,
+            totalPurchases: `₹${newTotal.toLocaleString('en-IN')}`
+          };
+        }
+        return s;
+      }));
+    }
 
     const newPo = {
       id: newPoId,
       date: dateStr,
-      ...poData
+      ...poData,
+      supplierId: finalSupplierId,
+      supplierName: finalSupplierName
     };
 
-    // If completed status, replenish stock
+    // 2. Auto-replenish stock or Auto-add new product in Inventory
     if (newPo.status === 'Completed' && poData.items && poData.items.length > 0) {
-      setProducts(prev => prev.map(p => {
-        const line = poData.items.find(i => Number(i.productId) === p.id);
-        if (line) {
-          const newStock = p.stock + Number(line.qty);
-          const status = newStock <= 0 ? 'Out of Stock' : (newStock <= p.minStock ? 'Low Stock' : 'In Stock');
-          return { ...p, stock: newStock, status };
-        }
-        return p;
-      }));
+      setProducts(prev => {
+        let updated = [...prev];
+
+        poData.items.forEach(item => {
+          // Check if product exists by ID or by Name
+          const existingIdx = updated.findIndex(p => 
+            (item.productId && p.id === Number(item.productId)) ||
+            (item.name && p.name.trim().toLowerCase() === item.name.trim().toLowerCase())
+          );
+
+          if (existingIdx >= 0) {
+            // Existing product: add quantity to stock, update cost price
+            const existing = updated[existingIdx];
+            const newStock = existing.stock + Number(item.qty);
+            const status = newStock <= 0 ? 'Out of Stock' : (newStock <= existing.minStock ? 'Low Stock' : 'In Stock');
+            updated[existingIdx] = {
+              ...existing,
+              stock: newStock,
+              costPrice: Number(item.cost) || existing.costPrice,
+              status,
+              supplierName: finalSupplierName || existing.supplierName
+            };
+          } else {
+            // Product doesn't exist yet: auto-add to Inventory catalog!
+            const newProdId = updated.length > 0 ? Math.max(...updated.map(p => p.id)) + 1 : 1;
+            const cost = Number(item.cost) || 0;
+            const price = Number(item.price) || Math.round(cost * 1.35) || (cost + 50);
+            const qty = Number(item.qty) || 1;
+            if (item.category && String(item.category).trim()) {
+              addCategory(String(item.category).trim());
+            }
+            const newProd = {
+              id: newProdId,
+              name: item.name || `Purchased Item #${newProdId}`,
+              sku: item.sku || `SKU-${Math.floor(100 + Math.random() * 900)}`,
+              category: item.category ? String(item.category).trim() : 'General',
+              stock: qty,
+              minStock: 20,
+              costPrice: cost,
+              price: price,
+              unit: item.unit || 'Piece',
+              status: qty <= 0 ? 'Out of Stock' : 'In Stock',
+              supplierId: finalSupplierId || 1,
+              supplierName: finalSupplierName || 'Supplier'
+            };
+            updated.unshift(newProd);
+            addAuditLog('Product Auto-Created', `Product ${newProd.name} auto-added to inventory catalog from PO #${newPoId}`);
+          }
+        });
+
+        return updated;
+      });
     }
 
     setPurchases(prev => [newPo, ...prev]);
-    addAuditLog('Purchase Order Created', `Order #${newPoId} placed with ${poData.supplierName}`);
-    showToast('PO Created', `Purchase order #${newPoId} recorded.`);
+    addAuditLog('Purchase Order Created', `Order #${newPoId} placed with ${finalSupplierName}`);
+    showToast('Purchase Completed', `PO #${newPoId} recorded, contact added/updated, and inventory stocked.`);
     return newPo;
   };
 
@@ -439,18 +800,25 @@ export const InventoryProvider = ({ children }) => {
     showToast('Export Complete', `${filename}.csv has been downloaded.`);
   };
 
-  // Reset to default seed
+  // Reset to default
   const resetAllData = () => {
-    setProducts(INITIAL_PRODUCTS);
-    setSales(INITIAL_SALES);
-    setPurchases(INITIAL_PURCHASES);
-    setSuppliers(INITIAL_SUPPLIERS);
-    setCustomers(INITIAL_CUSTOMERS);
-    setSessions(INITIAL_SESSIONS);
-    setAuditLogs(INITIAL_AUDIT_LOGS);
-    setUser(INITIAL_USER);
-    localStorage.clear();
-    showToast('Data Reset', 'All application data restored to defaults.', 'info');
+    setProducts([]);
+    setCategories([]);
+    setSales([]);
+    setPurchases([]);
+    setSuppliers([]);
+    setCustomers([]);
+    setAuditLogs([]);
+    setSessions([]);
+    localStorage.removeItem('iq_v3_products');
+    localStorage.removeItem('iq_v3_categories');
+    localStorage.removeItem('iq_v3_sales');
+    localStorage.removeItem('iq_v3_purchases');
+    localStorage.removeItem('iq_v3_suppliers');
+    localStorage.removeItem('iq_v3_customers');
+    localStorage.removeItem('iq_v3_auditLogs');
+    localStorage.removeItem('iq_v3_sessions');
+    showToast('Data Cleared', 'All application data has been wiped.', 'info');
   };
 
   // Calculated Dashboard Stats
@@ -466,14 +834,17 @@ export const InventoryProvider = ({ children }) => {
     profit: totalProfit,
     lowStockCount: lowStockItems.length,
     trends: {
-      products: '+12%',
-      sales: '+18%',
-      purchases: '+8%',
-      profit: '+20%'
+      products: products.length > 0 ? '+12%' : '0%',
+      sales: sales.length > 0 ? '+18%' : '0%',
+      purchases: purchases.length > 0 ? '+8%' : '0%',
+      profit: totalProfit > 0 ? '+20%' : '0%'
     }
   };
 
   const value = {
+    categories,
+    setCategories,
+    addCategory,
     products,
     setProducts,
     sales,
@@ -489,6 +860,10 @@ export const InventoryProvider = ({ children }) => {
     auditLogs,
     user,
     setUser,
+    users,
+    login,
+    register,
+    logout,
     currentPage,
     setCurrentPage,
     isAuthenticated,
@@ -536,4 +911,3 @@ export const InventoryProvider = ({ children }) => {
     </InventoryContext.Provider>
   );
 };
-

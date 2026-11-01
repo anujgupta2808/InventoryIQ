@@ -154,8 +154,21 @@ export const CustomersPage = () => {
               {filteredCustomers.length === 0 ? (
                 <tr>
                   <td colSpan="7" className="text-center py-5 text-secondary">
-                    <i className="bi bi-people fs-2 d-block mb-2 text-muted"></i>
-                    No customers found matching search.
+                    {customers.length === 0 ? (
+                      <div className="py-3">
+                        <i className="bi bi-people fs-2 d-block mb-2 text-muted"></i>
+                        <h6 className="text-white mb-1">No customers registered yet</h6>
+                        <p className="text-secondary small mb-3">Add customers to track their contact information, orders, and purchase histories.</p>
+                        <button type="button" className="btn btn-gold btn-sm" onClick={handleOpenAdd}>
+                          <i className="bi bi-person-plus-fill me-1"></i> + Add First Customer
+                        </button>
+                      </div>
+                    ) : (
+                      <>
+                        <i className="bi bi-people fs-2 d-block mb-2 text-muted"></i>
+                        No customers found matching search.
+                      </>
+                    )}
                   </td>
                 </tr>
               ) : (
@@ -168,7 +181,7 @@ export const CustomersPage = () => {
                           className="rounded-circle d-flex align-items-center justify-content-center fw-bold bg-dark text-gold border border-secondary"
                           style={{ width: 38, height: 38, fontSize: '0.85rem' }}
                         >
-                          {c.name.split(' ').map(n => n[0]).join('').slice(0, 2)}
+                          {(c.name || 'CU').split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase()}
                         </div>
                         <div>
                           <div className="fw-semibold text-white">{c.name}</div>

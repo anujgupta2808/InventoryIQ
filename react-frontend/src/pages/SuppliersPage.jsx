@@ -142,8 +142,21 @@ export const SuppliersPage = () => {
       <div className="d-flex flex-column gap-3 mb-4">
         {filteredSuppliers.length === 0 ? (
           <div className="card-custom p-5 text-center text-secondary">
-            <i className="bi bi-person-x fs-2 d-block mb-2 text-muted"></i>
-            No suppliers matched your search query.
+            {suppliers.length === 0 ? (
+              <div className="py-3">
+                <i className="bi bi-truck fs-2 d-block mb-2 text-muted"></i>
+                <h6 className="text-white mb-1">No supplier contacts added yet</h6>
+                <p className="text-secondary small mb-3">Add verified suppliers to manage restock purchase orders and contact info.</p>
+                <button type="button" className="btn btn-gold btn-sm" onClick={handleOpenAdd}>
+                  <i className="bi bi-plus-lg me-1"></i> + Add First Supplier
+                </button>
+              </div>
+            ) : (
+              <>
+                <i className="bi bi-person-x fs-2 d-block mb-2 text-muted"></i>
+                No suppliers matched your search query.
+              </>
+            )}
           </div>
         ) : (
           filteredSuppliers.map((s) => (
@@ -164,7 +177,7 @@ export const SuppliersPage = () => {
                     fontSize: '1.1rem'
                   }}
                 >
-                  {s.name.slice(0, 3).toUpperCase()}
+                  {(s.name || 'SUP').slice(0, 3).toUpperCase()}
                 </div>
 
                 <div>

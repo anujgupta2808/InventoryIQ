@@ -2,11 +2,12 @@ import React, { useState } from 'react';
 import { useInventory } from '../../context/InventoryContext';
 
 export const LoginPage = () => {
-  const { setCurrentPage, setIsAuthenticated, showToast } = useInventory();
+  const { setCurrentPage, login, showToast } = useInventory();
   const [email, setEmail] = useState('admin@inventoryiq.com');
-  const [password, setPassword] = useState('admin123');
+  const [password, setPassword] = useState('admin');
   const [showPassword, setShowPassword] = useState(false);
   const [rememberMe, setRememberMe] = useState(true);
+  const [loading, setLoading] = useState(false);
 
   const handleSubmit = (e) => {
     e.preventDefault();
@@ -14,9 +15,17 @@ export const LoginPage = () => {
       showToast('Validation Error', 'Please enter email and password.', 'danger');
       return;
     }
-    setIsAuthenticated(true);
-    setCurrentPage('dashboard');
-    showToast('Welcome Back!', 'Logged in as Anuj Gupta (Admin).');
+    setLoading(true);
+    setTimeout(() => {
+      login({ email, password, rememberMe });
+      setLoading(false);
+    }, 250);
+  };
+
+  const handleDemoLogin = () => {
+    setEmail('admin@inventoryiq.com');
+    setPassword('admin');
+    login({ email: 'admin@inventoryiq.com', password: 'admin', rememberMe: true });
   };
 
   return (
@@ -25,7 +34,7 @@ export const LoginPage = () => {
         {/* Left Side: Brand Showcase */}
         <div className="auth-showcase">
           <div className="brand-wrapper">
-            <img src="/logo.svg" alt="InventoryIQ" className="brand-logo-img" />
+            <img src="./logo.svg" alt="InventoryIQ" className="brand-logo-img" />
             <div className="brand-text-block">
               <span className="brand-name">Inventory<span>IQ</span></span>
               <span className="brand-tagline">Smart Inventory. Smarter Business.</span>
@@ -34,12 +43,12 @@ export const LoginPage = () => {
 
           <div className="auth-showcase-hero">
             <h2 className="auth-showcase-title">Manage Your Business Effortlessly</h2>
-            <p className="auth-showcase-desc">Track inventory, monitor sales, and grow your business with ease.</p>
-            <img src="/hero-box.svg" alt="InventoryIQ 3D Boxes" className="auth-showcase-img" />
+            <p className="auth-showcase-desc">Track real-time inventory, record sales, issue tax invoices, and grow your business.</p>
+            <img src="./hero-box.svg" alt="InventoryIQ 3D Boxes" className="auth-showcase-img" />
           </div>
 
           <div className="d-flex align-items-center justify-content-between text-muted" style={{ fontSize: '0.75rem' }}>
-            <span><i className="bi bi-shield-check text-gold me-1"></i> 256-Bit SSL Encrypted</span>
+            <span><i className="bi bi-shield-check text-gold me-1"></i> 256-Bit SSL Encrypted Session</span>
             <span>v2.0 Commercial</span>
           </div>
         </div>
@@ -49,6 +58,21 @@ export const LoginPage = () => {
           <div className="auth-header">
             <h3 className="auth-title">Welcome Back!</h3>
             <p className="auth-subtitle">Sign in to your account</p>
+          </div>
+
+          {/* Quick Demo Helper Pill */}
+          <div className="p-2 mb-3 rounded bg-secondary-dark border border-secondary d-flex align-items-center justify-content-between text-secondary small">
+            <div>
+              <span className="text-gold fw-semibold">Demo Admin:</span> admin@inventoryiq.com / admin
+            </div>
+            <button
+              type="button"
+              className="btn btn-sm btn-outline-warning text-gold py-0 px-2"
+              onClick={handleDemoLogin}
+              style={{ fontSize: '0.75rem' }}
+            >
+              Auto-Fill
+            </button>
           </div>
 
           <form onSubmit={handleSubmit}>
@@ -112,8 +136,19 @@ export const LoginPage = () => {
               </button>
             </div>
 
-            <button type="submit" className="btn-gold w-100 py-2 fw-semibold mb-4">
-              Sign In
+            <button
+              type="submit"
+              className="btn-gold w-100 py-2 fw-semibold mb-4"
+              disabled={loading}
+            >
+              {loading ? (
+                <>
+                  <span className="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>
+                  Signing In...
+                </>
+              ) : (
+                'Sign In'
+              )}
             </button>
 
             <div className="auth-divider">or continue with</div>
@@ -123,7 +158,7 @@ export const LoginPage = () => {
                 type="button"
                 className="social-btn"
                 title="Google"
-                onClick={() => { setIsAuthenticated(true); setCurrentPage('dashboard'); }}
+                onClick={handleDemoLogin}
               >
                 <i className="bi bi-google"></i>
               </button>
@@ -131,7 +166,7 @@ export const LoginPage = () => {
                 type="button"
                 className="social-btn"
                 title="GitHub"
-                onClick={() => { setIsAuthenticated(true); setCurrentPage('dashboard'); }}
+                onClick={handleDemoLogin}
               >
                 <i className="bi bi-github"></i>
               </button>
@@ -139,7 +174,7 @@ export const LoginPage = () => {
                 type="button"
                 className="social-btn"
                 title="Microsoft"
-                onClick={() => { setIsAuthenticated(true); setCurrentPage('dashboard'); }}
+                onClick={handleDemoLogin}
               >
                 <i className="bi bi-microsoft"></i>
               </button>
