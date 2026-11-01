@@ -1,0 +1,77 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 320" fill="none">
+  <defs>
+    <linearGradient id="bgGlow" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#F5B942" stop-opacity="0.18"/>
+      <stop offset="100%" stop-color="#F5B942" stop-opacity="0"/>
+    </linearGradient>
+    <linearGradient id="boxGold1" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#FFE79A"/>
+      <stop offset="100%" stop-color="#F5B942"/>
+    </linearGradient>
+    <linearGradient id="boxGold2" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#E5A92E"/>
+      <stop offset="100%" stop-color="#C28212"/>
+    </linearGradient>
+    <linearGradient id="boxGold3" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#AD7007"/>
+      <stop offset="100%" stop-color="#704400"/>
+    </linearGradient>
+    <linearGradient id="chartBarGold" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#FFE07D"/>
+      <stop offset="100%" stop-color="#F5B942"/>
+    </linearGradient>
+    <filter id="shadowGlow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="8" stdDeviation="16" flood-color="#F5B942" flood-opacity="0.3"/>
+    </filter>
+  </defs>
+
+  <!-- Ambient Glow -->
+  <circle cx="200" cy="180" r="140" fill="url(#bgGlow)"/>
+
+  <!-- Chart Bars Behind -->
+  <g opacity="0.9">
+    <rect x="250" y="160" width="18" height="70" rx="4" fill="url(#chartBarGold)" opacity="0.5"/>
+    <rect x="275" y="130" width="18" height="100" rx="4" fill="url(#chartBarGold)" opacity="0.7"/>
+    <rect x="300" y="90" width="18" height="140" rx="4" fill="url(#chartBarGold)"/>
+    <!-- Growth Arrow -->
+    <path d="M245 160L285 110L320 60" stroke="#FFE07D" stroke-width="4" stroke-linecap="round" stroke-linejoin="round" filter="url(#shadowGlow)"/>
+    <path d="M305 60H322V77" stroke="#FFE07D" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+  </g>
+
+  <!-- Ground platform shadow -->
+  <ellipse cx="170" cy="245" rx="110" ry="24" fill="#000000" opacity="0.6"/>
+
+  <!-- Main Isometric Box 1 (Front Center) -->
+  <g filter="url(#shadowGlow)" transform="translate(110, 140)">
+    <!-- Top -->
+    <path d="M50 0L95 24L50 48L5 24L50 0Z" fill="url(#boxGold1)"/>
+    <!-- Left -->
+    <path d="M5 24L50 48V100L5 76V24Z" fill="url(#boxGold2)"/>
+    <!-- Right -->
+    <path d="M50 48L95 24V76L50 100V48Z" fill="url(#boxGold3)"/>
+    <!-- Tape line -->
+    <path d="M50 48V78" stroke="#FFE79A" stroke-width="4" stroke-linecap="round"/>
+    <path d="M50 0L50 24" stroke="#704400" stroke-width="3" stroke-linecap="round" opacity="0.5"/>
+  </g>
+
+  <!-- Isometric Box 2 (Left Lower) -->
+  <g transform="translate(55, 175)">
+    <path d="M40 0L75 19L40 38L5 19L40 0Z" fill="url(#boxGold1)"/>
+    <path d="M5 19L40 38V80L5 61V19Z" fill="url(#boxGold2)"/>
+    <path d="M40 38L75 19V61L40 80V38Z" fill="url(#boxGold3)"/>
+    <path d="M40 38V62" stroke="#FFE79A" stroke-width="3" stroke-linecap="round"/>
+  </g>
+
+  <!-- Isometric Box 3 (Stacked / Rear) -->
+  <g transform="translate(160, 120)">
+    <path d="M35 0L65 17L35 34L5 17L35 0Z" fill="url(#boxGold1)" opacity="0.9"/>
+    <path d="M5 17L35 34V70L5 53V17Z" fill="url(#boxGold2)" opacity="0.9"/>
+    <path d="M35 34L65 17V53L35 70V34Z" fill="url(#boxGold3)" opacity="0.9"/>
+  </g>
+
+  <!-- Glowing Sparkles -->
+  <circle cx="85" cy="110" r="3" fill="#FFE07D" filter="url(#shadowGlow)"/>
+  <circle cx="330" cy="110" r="2" fill="#FFE07D"/>
+  <circle cx="270" cy="50" r="4" fill="#FFFFFF"/>
+</svg>
+

@@ -1,0 +1,72 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 320" fill="none">
+  <defs>
+    <linearGradient id="regGlow" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#F5B942" stop-opacity="0.2"/>
+      <stop offset="100%" stop-color="#F5B942" stop-opacity="0"/>
+    </linearGradient>
+    <linearGradient id="boardGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#2A2A2A"/>
+      <stop offset="100%" stop-color="#181818"/>
+    </linearGradient>
+    <linearGradient id="sheetGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#FFFFFF"/>
+      <stop offset="100%" stop-color="#ECECEC"/>
+    </linearGradient>
+    <linearGradient id="goldAcc" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#FFE07D"/>
+      <stop offset="100%" stop-color="#F5B942"/>
+    </linearGradient>
+    <filter id="badgeGlow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="6" stdDeviation="12" flood-color="#F5B942" flood-opacity="0.4"/>
+    </filter>
+  </defs>
+
+  <!-- Ambient Glow -->
+  <circle cx="200" cy="160" r="130" fill="url(#regGlow)"/>
+
+  <!-- Shadow below board -->
+  <ellipse cx="200" cy="265" rx="90" ry="18" fill="#000000" opacity="0.6"/>
+
+  <!-- Clipboard Board -->
+  <rect x="130" y="55" width="140" height="195" rx="16" fill="url(#boardGrad)" stroke="#353535" stroke-width="2"/>
+  
+  <!-- Clipboard Clip Top -->
+  <rect x="170" y="42" width="60" height="26" rx="6" fill="#3D3D3D" stroke="#555555" stroke-width="1.5"/>
+  <rect x="185" y="48" width="30" height="8" rx="4" fill="#1B1B1B"/>
+  <circle cx="200" cy="46" r="3" fill="url(#goldAcc)"/>
+
+  <!-- Inner Paper Sheet -->
+  <rect x="145" y="76" width="110" height="160" rx="8" fill="url(#sheetGrad)"/>
+
+  <!-- Paper Lines & Checkmarks -->
+  <!-- Line 1 -->
+  <circle cx="163" cy="98" r="6" fill="#F5B942"/>
+  <path d="M160 98L162 100L166 96" stroke="#090909" stroke-width="1.5" stroke-linecap="round"/>
+  <rect x="176" y="95" width="64" height="6" rx="3" fill="#B0B0B0"/>
+
+  <!-- Line 2 -->
+  <circle cx="163" cy="122" r="6" fill="#F5B942"/>
+  <path d="M160 122L162 124L166 120" stroke="#090909" stroke-width="1.5" stroke-linecap="round"/>
+  <rect x="176" y="119" width="52" height="6" rx="3" fill="#B0B0B0"/>
+
+  <!-- Line 3 -->
+  <circle cx="163" cy="146" r="6" fill="#F5B942"/>
+  <path d="M160 146L162 148L166 144" stroke="#090909" stroke-width="1.5" stroke-linecap="round"/>
+  <rect x="176" y="143" width="68" height="6" rx="3" fill="#B0B0B0"/>
+
+  <!-- Line 4 -->
+  <circle cx="163" cy="170" r="6" fill="#E0E0E0"/>
+  <rect x="176" y="167" width="45" height="6" rx="3" fill="#D0D0D0"/>
+
+  <!-- Big Plus Gold Badge floating at bottom right -->
+  <g filter="url(#badgeGlow)">
+    <circle cx="240" cy="225" r="26" fill="url(#goldAcc)"/>
+    <path d="M240 213V237M228 225H252" stroke="#090909" stroke-width="4.5" stroke-linecap="round"/>
+  </g>
+
+  <!-- Sparkles -->
+  <circle cx="105" cy="95" r="3" fill="#FFE07D"/>
+  <circle cx="280" cy="80" r="2.5" fill="#FFE07D"/>
+  <circle cx="110" cy="220" r="2" fill="#FFFFFF"/>
+</svg>
+

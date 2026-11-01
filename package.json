@@ -1,0 +1,20 @@
+{
+  "name": "inventoryiq",
+  "version": "2.0.0",
+  "description": "InventoryIQ - Smart Inventory. Smarter Business. Commercial Black & Gold React + Vite SaaS Platform",
+  "scripts": {
+    "dev": "npm --prefix react-frontend run dev",
+    "build": "npm --prefix react-frontend run build",
+    "preview": "npm --prefix react-frontend run preview"
+  },
+  "keywords": [
+    "inventory",
+    "pos",
+    "react",
+    "vite",
+    "dashboard",
+    "black-and-gold"
+  ],
+  "author": "InventoryIQ Team"
+}
+
