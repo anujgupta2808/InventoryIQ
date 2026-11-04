@@ -188,23 +188,30 @@ export const Topbar = () => {
               <button
                 type="button"
                 className="dropdown-item-iq w-100 border-0 bg-transparent text-start"
+                onClick={() => { setCurrentPage('sales'); setCreateOpen(false); }}
+              >
+                <i className="bi bi-cart-check"></i> New Sale
+              </button>
+              <button
+                type="button"
+                className="dropdown-item-iq w-100 border-0 bg-transparent text-start"
                 onClick={() => { setCurrentPage('purchases'); setCreateOpen(false); }}
               >
-                <i className="bi bi-cart-plus"></i> New Purchase Order
+                <i className="bi bi-bag-plus"></i> New Purchase Order
               </button>
               <button
                 type="button"
                 className="dropdown-item-iq w-100 border-0 bg-transparent text-start"
                 onClick={() => { setCurrentPage('inventory'); setCreateOpen(false); }}
               >
-                <i className="bi bi-box"></i> Add Product
+                <i className="bi bi-box-seam"></i> Add Product
               </button>
               <button
                 type="button"
                 className="dropdown-item-iq w-100 border-0 bg-transparent text-start"
-                onClick={() => { setCurrentPage('customers'); setCreateOpen(false); }}
+                onClick={() => { setCurrentPage('suppliers'); setCreateOpen(false); }}
               >
-                <i className="bi bi-person-plus"></i> Add Customer
+                <i className="bi bi-truck"></i> Add Supplier Contact
               </button>
             </div>
           )}

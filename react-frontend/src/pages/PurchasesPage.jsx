@@ -319,22 +319,30 @@ export const PurchasesPage = () => {
       <div className="card-custom p-3 mb-4">
         <div className="row g-3 align-items-center">
           <div className="col-12 col-md-5">
-            <div className="input-group">
-              <span className="input-group-text bg-input border-secondary text-secondary">
-                <i className="bi bi-search"></i>
-              </span>
+            <div className="iq-search-bar">
+              <i className="bi bi-search iq-search-icon"></i>
               <input
                 type="text"
-                className="form-control bg-input border-secondary text-white"
-                placeholder="Search PO number or supplier..."
+                className="iq-search-input"
+                placeholder="Search PO number or supplier name..."
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
               />
+              {searchTerm && (
+                <button
+                  type="button"
+                  className="iq-search-clear"
+                  onClick={() => setSearchTerm('')}
+                  title="Clear search"
+                >
+                  <i className="bi bi-x-lg"></i>
+                </button>
+              )}
             </div>
           </div>
           <div className="col-12 col-sm-6 col-md-4">
             <select
-              className="form-select bg-input border-secondary text-white"
+              className="form-select iq-toolbar-select"
               value={selectedStatus}
               onChange={(e) => setSelectedStatus(e.target.value)}
             >

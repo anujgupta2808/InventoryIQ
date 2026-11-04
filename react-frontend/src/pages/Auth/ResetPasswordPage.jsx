@@ -2,10 +2,12 @@ import React, { useState } from 'react';
 import { useInventory } from '../../context/InventoryContext';
 
 export const ResetPasswordPage = () => {
-  const { setCurrentPage, showToast } = useInventory();
+  const { setCurrentPage, resetTargetEmail, resetPassword, showToast } = useInventory();
+  const [email, setEmail] = useState(resetTargetEmail || 'admin@inventoryiq.com');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
+  const [loading, setLoading] = useState(false);
 
   const calculateStrength = (pass) => {
     let score = 0;
@@ -22,23 +24,43 @@ export const ResetPasswordPage = () => {
 
   const handleSubmit = (e) => {
     e.preventDefault();
-    if (password !== confirmPassword) {
-      showToast('Validation Error', 'Passwords do not match.', 'danger');
+    const cleanEmail = String(email || '').trim().toLowerCase();
+
+    if (!cleanEmail || !cleanEmail.includes('@')) {
+      showToast('Validation Error', 'Please enter a valid registered email address.', 'danger');
       return;
     }
+
     if (password.length < 8) {
       showToast('Validation Error', 'Password must be at least 8 characters long.', 'danger');
       return;
     }
-    showToast('Success!', 'Your password has been reset. Please sign in with your new credentials.');
-    setCurrentPage('login');
+
+    if (password !== confirmPassword) {
+      showToast('Validation Error', 'Passwords do not match.', 'danger');
+      return;
+    }
+
+    setLoading(true);
+    setTimeout(() => {
+      if (resetPassword) {
+        const res = resetPassword({ email: cleanEmail, newPassword: password });
+        if (res && res.success) {
+          setCurrentPage('login');
+        }
+      } else {
+        showToast('Success!', 'Your password has been reset. Please sign in with your new credentials.');
+        setCurrentPage('login');
+      }
+      setLoading(false);
+    }, 250);
   };
 
   return (
     <div className="auth-page-wrapper">
       <div className="iq-card p-4 p-md-5" style={{ maxWidth: 480, width: '100%', borderColor: 'var(--border-gold)' }}>
         <div className="text-center mb-4">
-          <img src="/logo.svg" alt="InventoryIQ" style={{ width: 44, height: 44 }} className="mx-auto mb-3" />
+          <img src="./logo.svg" alt="InventoryIQ" style={{ width: 44, height: 44 }} className="mx-auto mb-3" />
           <h3 className="auth-title">Set New Password</h3>
           <p className="auth-subtitle">
             Please choose a secure and strong password for your account.
@@ -46,6 +68,22 @@ export const ResetPasswordPage = () => {
         </div>
 
         <form onSubmit={handleSubmit}>
+          <div className="mb-3">
+            <label className="form-label" htmlFor="accountEmail">Target Account Email</label>
+            <div className="input-icon-group">
+              <i className="bi bi-envelope input-icon-left"></i>
+              <input
+                id="accountEmail"
+                type="email"
+                required
+                className="form-control-iq"
+                placeholder="admin@inventoryiq.com"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+              />
+            </div>
+          </div>
+
           <div className="mb-3">
             <label className="form-label" htmlFor="newPass">New Password</label>
             <div className="input-icon-group">
@@ -100,8 +138,12 @@ export const ResetPasswordPage = () => {
             </div>
           </div>
 
-          <button type="submit" className="btn-gold w-100 py-2 fw-semibold mb-3">
-            Update & Sign In
+          <button
+            type="submit"
+            className="btn-gold w-100 py-2 fw-semibold mb-3"
+            disabled={loading}
+          >
+            {loading ? 'Updating Password...' : 'Update & Proceed to Login'}
           </button>
 
           <div className="text-center">

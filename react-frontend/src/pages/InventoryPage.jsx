@@ -11,7 +11,8 @@ export const InventoryPage = () => {
     deleteProduct,
     openConfirm,
     exportCSV,
-    lowStockItems
+    lowStockItems,
+    showToast
   } = useInventory();
 
   // Dynamic Categories from state & products
@@ -50,7 +51,7 @@ export const InventoryPage = () => {
   const filteredProducts = useMemo(() => {
     return products.filter(p => {
       const matchSearch = p.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                          p.sku.toLowerCase().includes(searchTerm.toLowerCase());
+        p.sku.toLowerCase().includes(searchTerm.toLowerCase());
       const matchCat = selectedCategory === 'All' || p.category === selectedCategory;
       const matchStat = selectedStatus === 'All' || p.status === selectedStatus;
       return matchSearch && matchCat && matchStat;
@@ -78,6 +79,17 @@ export const InventoryPage = () => {
       setSortField(field);
       setSortOrder('asc');
     }
+  };
+
+  const handleCloseModal = () => {
+    setModalMode(null);
+    setSelectedProduct(null);
+    setFormData(initialFormState);
+  };
+
+  const handleGenerateSku = () => {
+    const randomSku = `SKU-${Math.floor(100 + Math.random() * 900)}`;
+    setFormData(prev => ({ ...prev, sku: randomSku }));
   };
 
   const handleOpenAdd = () => {
@@ -111,24 +123,73 @@ export const InventoryPage = () => {
 
   const handleSubmitForm = (e) => {
     e.preventDefault();
-    if (!formData.name || !formData.sku || !formData.price) {
+    const cleanName = String(formData.name || '').trim();
+    const cleanSku = String(formData.sku || '').trim().toUpperCase();
+    const cleanCat = String(formData.category || '').trim();
+    const cleanPrice = parseFloat(formData.price);
+    const cleanCost = parseFloat(formData.costPrice || 0);
+    const cleanStock = parseInt(formData.stock, 10);
+    const cleanMinStock = parseInt(formData.minStock || 0, 10);
+
+    if (!cleanName) {
+      showToast('Validation Error', 'Please enter a product name.', 'danger');
+      return;
+    }
+    if (!cleanSku) {
+      showToast('Validation Error', 'Please enter or generate a product SKU.', 'danger');
+      return;
+    }
+
+    // Check duplicate SKU
+    const skuExists = products.some(p =>
+      p.sku.toUpperCase() === cleanSku &&
+      (modalMode === 'add' || p.id !== selectedProduct?.id)
+    );
+    if (skuExists) {
+      showToast('Duplicate SKU', `A product with SKU "${cleanSku}" already exists in your catalog.`, 'danger');
+      return;
+    }
+
+    if (isNaN(cleanPrice) || cleanPrice <= 0) {
+      showToast('Validation Error', 'Selling price must be greater than zero.', 'danger');
+      return;
+    }
+
+    if (isNaN(cleanCost) || cleanCost < 0) {
+      showToast('Validation Error', 'Cost price cannot be negative.', 'danger');
+      return;
+    }
+
+    if (isNaN(cleanStock) || cleanStock < 0) {
+      showToast('Validation Error', 'Available stock cannot be negative.', 'danger');
+      return;
+    }
+
+    if (isNaN(cleanMinStock) || cleanMinStock < 0) {
+      showToast('Validation Error', 'Min stock alert level cannot be negative.', 'danger');
       return;
     }
 
     const matchedSupplier = suppliers.find(s => s.id === Number(formData.supplierId));
 
+    const payload = {
+      ...formData,
+      name: cleanName,
+      sku: cleanSku,
+      category: cleanCat || 'General',
+      price: cleanPrice,
+      costPrice: cleanCost,
+      stock: cleanStock,
+      minStock: cleanMinStock,
+      supplierName: matchedSupplier?.name || 'Local Supplier'
+    };
+
     if (modalMode === 'add') {
-      addProduct({
-        ...formData,
-        supplierName: matchedSupplier?.name || 'Local Supplier'
-      });
+      addProduct(payload);
     } else if (modalMode === 'edit') {
-      updateProduct(selectedProduct.id, {
-        ...formData,
-        supplierName: matchedSupplier?.name || selectedProduct.supplierName
-      });
+      updateProduct(selectedProduct.id, payload);
     }
-    setModalMode(null);
+    handleCloseModal();
   };
 
   const handleDelete = (p) => {
@@ -211,24 +272,23 @@ export const InventoryPage = () => {
         <div className="row g-3 align-items-center">
           {/* Search Box */}
           <div className="col-12 col-md-4">
-            <div className="input-group">
-              <span className="input-group-text bg-input border-secondary text-secondary">
-                <i className="bi bi-search"></i>
-              </span>
+            <div className="iq-search-bar">
+              <i className="bi bi-search iq-search-icon"></i>
               <input
                 type="text"
-                className="form-control bg-input border-secondary text-white"
-                placeholder="Search products or SKU..."
+                className="iq-search-input"
+                placeholder="Search products by name or SKU..."
                 value={searchTerm}
                 onChange={(e) => { setSearchTerm(e.target.value); setCurrentPageNum(1); }}
               />
               {searchTerm && (
                 <button
                   type="button"
-                  className="btn btn-outline-secondary"
+                  className="iq-search-clear"
                   onClick={() => setSearchTerm('')}
+                  title="Clear search"
                 >
-                  <i className="bi bi-x"></i>
+                  <i className="bi bi-x-lg"></i>
                 </button>
               )}
             </div>
@@ -237,7 +297,7 @@ export const InventoryPage = () => {
           {/* Category Filter */}
           <div className="col-12 col-sm-6 col-md-3">
             <select
-              className="form-select bg-input border-secondary text-white"
+              className="form-select iq-toolbar-select"
               value={selectedCategory}
               onChange={(e) => { setSelectedCategory(e.target.value); setCurrentPageNum(1); }}
             >
@@ -251,7 +311,7 @@ export const InventoryPage = () => {
           {/* Status Filter */}
           <div className="col-12 col-sm-6 col-md-3">
             <select
-              className="form-select bg-input border-secondary text-white"
+              className="form-select iq-toolbar-select"
               value={selectedStatus}
               onChange={(e) => { setSelectedStatus(e.target.value); setCurrentPageNum(1); }}
             >
@@ -357,10 +417,9 @@ export const InventoryPage = () => {
                       <small className="d-block text-muted" style={{ fontSize: '0.75rem' }}>Cost: ₹{p.costPrice}</small>
                     </td>
                     <td>
-                      <span className={`badge ${
-                        p.status === 'In Stock' ? 'badge-success' :
-                        p.status === 'Low Stock' ? 'badge-warning' : 'badge-danger'
-                      }`}>
+                      <span className={`badge ${p.status === 'In Stock' ? 'badge-success' :
+                          p.status === 'Low Stock' ? 'badge-warning' : 'badge-danger'
+                        }`}>
                         {p.status}
                       </span>
                     </td>
@@ -439,7 +498,7 @@ export const InventoryPage = () => {
 
       {/* Add / Edit Product Modal */}
       {(modalMode === 'add' || modalMode === 'edit') && (
-        <div className="iq-modal-backdrop" onClick={() => setModalMode(null)}>
+        <div className="iq-modal-backdrop" onClick={handleCloseModal}>
           <div className="iq-modal-container modal-lg p-4" onClick={e => e.stopPropagation()}>
             <div className="d-flex justify-content-between align-items-center mb-3 pb-2 border-bottom border-secondary">
               <h5 className="modal-title text-white fw-bold">
@@ -448,7 +507,7 @@ export const InventoryPage = () => {
               <button
                 type="button"
                 className="btn-close btn-close-white"
-                onClick={() => setModalMode(null)}
+                onClick={handleCloseModal}
               ></button>
             </div>
 
@@ -466,13 +525,24 @@ export const InventoryPage = () => {
                   />
                 </div>
                 <div className="col-12 col-md-4">
-                  <label className="form-label text-secondary small">SKU / Item Code *</label>
+                  <div className="d-flex justify-content-between align-items-center mb-1">
+                    <label className="form-label text-secondary small mb-0">SKU / Code *</label>
+                    <button
+                      type="button"
+                      className="btn btn-link btn-sm p-0 text-gold text-decoration-none"
+                      style={{ fontSize: '0.75rem' }}
+                      onClick={handleGenerateSku}
+                    >
+                      <i className="bi bi-magic me-1"></i>Generate
+                    </button>
+                  </div>
                   <input
                     type="text"
                     required
                     className="form-control bg-input border-secondary text-white"
+                    placeholder="SKU-101"
                     value={formData.sku}
-                    onChange={(e) => setFormData({ ...formData, sku: e.target.value })}
+                    onChange={(e) => setFormData({ ...formData, sku: e.target.value.toUpperCase() })}
                   />
                 </div>
 
@@ -581,7 +651,7 @@ export const InventoryPage = () => {
                 <button
                   type="button"
                   className="btn btn-secondary-custom"
-                  onClick={() => setModalMode(null)}
+                  onClick={handleCloseModal}
                 >
                   Cancel
                 </button>
@@ -624,10 +694,9 @@ export const InventoryPage = () => {
               </div>
               <div className="col-6">
                 <small className="text-secondary d-block">Status</small>
-                <span className={`badge ${
-                  selectedProduct.status === 'In Stock' ? 'badge-success' :
-                  selectedProduct.status === 'Low Stock' ? 'badge-warning' : 'badge-danger'
-                }`}>
+                <span className={`badge ${selectedProduct.status === 'In Stock' ? 'badge-success' :
+                    selectedProduct.status === 'Low Stock' ? 'badge-warning' : 'badge-danger'
+                  }`}>
                   {selectedProduct.status}
                 </span>
               </div>

@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { useInventory } from '../context/InventoryContext';
 
 export const ProfilePage = () => {
-  const { user, setUser, showToast } = useInventory();
+  const { user, setUser, showToast, updateUserProfile, changePassword } = useInventory();
 
   const [name, setName] = useState(user?.name || '');
   const [email, setEmail] = useState(user?.email || '');
@@ -27,24 +27,48 @@ export const ProfilePage = () => {
 
   const handleUpdateProfile = (e) => {
     e.preventDefault();
-    setUser({ ...user, name, email, phone });
-    showToast('Profile Updated', 'Your profile details have been saved.');
+    const cleanName = String(name || '').trim();
+    const cleanEmail = String(email || '').trim().toLowerCase();
+    const cleanPhone = String(phone || '').trim();
+
+    if (!cleanName) {
+      showToast('Validation Error', 'Full name is required.', 'danger');
+      return;
+    }
+    if (!cleanEmail || !cleanEmail.includes('@')) {
+      showToast('Validation Error', 'Please enter a valid email address.', 'danger');
+      return;
+    }
+
+    if (updateUserProfile) {
+      updateUserProfile({ name: cleanName, email: cleanEmail, phone: cleanPhone });
+    } else {
+      setUser({ ...user, name: cleanName, email: cleanEmail, phone: cleanPhone });
+      showToast('Profile Updated', 'Your profile details have been saved.');
+    }
   };
 
   const handleChangePassword = (e) => {
     e.preventDefault();
-    if (newPassword !== confirmPassword) {
-      showToast('Error', 'New password and confirmation do not match.', 'danger');
+    if (!currentPassword) {
+      showToast('Validation Error', 'Please enter your current password.', 'danger');
       return;
     }
     if (newPassword.length < 8) {
-      showToast('Error', 'Password must be at least 8 characters.', 'danger');
+      showToast('Validation Error', 'New password must be at least 8 characters long.', 'danger');
       return;
     }
-    setCurrentPassword('');
-    setNewPassword('');
-    setConfirmPassword('');
-    showToast('Security Alert', 'Your account password has been updated.');
+    if (newPassword !== confirmPassword) {
+      showToast('Validation Error', 'New password and confirmation do not match.', 'danger');
+      return;
+    }
+
+    const res = changePassword({ currentPassword, newPassword });
+    if (res && res.success) {
+      setCurrentPassword('');
+      setNewPassword('');
+      setConfirmPassword('');
+    }
   };
 
   return (

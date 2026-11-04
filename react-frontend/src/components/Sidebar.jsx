@@ -10,23 +10,57 @@ export const Sidebar = () => {
     mobileMenuOpen,
     setMobileMenuOpen,
     lowStockItems,
+    stats,
+    user,
     logout
   } = useInventory();
 
-  // Clean, uncluttered list matching the Stockly reference screenshot exactly
-  const navItems = [
-    { id: 'dashboard', label: 'Dashboard', icon: 'bi-grid-fill' },
-    { id: 'inventory', label: 'Inventory', icon: 'bi-box-seam-fill', badge: lowStockItems.length > 0 ? `${lowStockItems.length}` : null },
-    { id: 'sales', label: 'Sales', icon: 'bi-cart-check-fill' },
-    { id: 'purchases', label: 'Purchases', icon: 'bi-bag-check-fill' },
-    { id: 'analytics', label: 'Analytics', icon: 'bi-graph-up-arrow' },
-    { id: 'customers', label: 'Customers', icon: 'bi-people-fill' },
-    { id: 'suppliers', label: 'Contact', icon: 'bi-truck' },
-    { id: 'settings', label: 'Settings', icon: 'bi-gear-fill' },
-    { id: 'security', label: 'Security', icon: 'bi-shield-check' }
+  // Categorized Navigation Sections with Party Due Tracker prominently highlighted
+  const navGroups = [
+    {
+      group: 'Core',
+      items: [
+        { id: 'dashboard', label: 'Dashboard', icon: 'bi-grid-fill' },
+        {
+          id: 'inventory',
+          label: 'Inventory',
+          icon: 'bi-box-seam-fill',
+          badge: lowStockItems && lowStockItems.length > 0 ? `${lowStockItems.length}` : null,
+          badgeVariant: 'warning'
+        }
+      ]
+    },
+    {
+      group: 'Finance & Sales',
+      items: [
+        { id: 'sales', label: 'Sales & Invoices', icon: 'bi-cart-check-fill' },
+        {
+          id: 'ledger',
+          label: 'Party Due Tracker',
+          icon: 'bi-wallet2',
+          badge: stats?.totalDue > 0 ? `₹${stats.totalDue.toLocaleString('en-IN')}` : 'Cleared',
+          badgeVariant: stats?.totalDue > 0 ? 'danger' : 'success',
+          highlight: stats?.totalDue > 0
+        },
+        { id: 'purchases', label: 'Purchases & POs', icon: 'bi-bag-check-fill' }
+      ]
+    },
+    {
+      group: 'Operations',
+      items: [
+        { id: 'analytics', label: 'Analytics', icon: 'bi-graph-up-arrow' },
+        { id: 'suppliers', label: 'Supplier Contacts', icon: 'bi-truck' }
+      ]
+    },
+    {
+      group: 'System',
+      items: [
+        { id: 'settings', label: 'Settings', icon: 'bi-gear-fill' },
+        { id: 'security', label: 'Security', icon: 'bi-shield-check' }
+      ]
+    }
   ];
 
-  // On mobile devices (drawer mode), the sidebar always displays fully with no collapse controls
   const isCollapsed = !mobileMenuOpen && sidebarCollapsed;
 
   const handleNavClick = (id) => {
@@ -42,7 +76,7 @@ export const Sidebar = () => {
 
   return (
     <>
-      {/* Mobile Drawer Overlay */}
+      {/* Mobile Drawer Overlay Backdrop */}
       {mobileMenuOpen && (
         <div
           className="sidebar-overlay active"
@@ -50,12 +84,12 @@ export const Sidebar = () => {
         />
       )}
 
-      {/* Main Sidebar */}
+      {/* Main Sidebar Shell */}
       <aside
         id="mainSidebar"
         className={`iq-sidebar ${isCollapsed ? 'collapsed' : ''} ${mobileMenuOpen ? 'mobile-open' : ''}`}
       >
-        {/* Brand Header & Toggle */}
+        {/* Brand Header */}
         <div className={`sidebar-header ${isCollapsed ? 'collapsed-header' : ''}`}>
           {!isCollapsed ? (
             <>
@@ -72,7 +106,7 @@ export const Sidebar = () => {
                 </div>
               </div>
 
-              {/* Sidebar Collapse Button - Desktop & Tablet only (strictly hidden on mobile) */}
+              {/* Sidebar Collapse Toggle Button (Desktop & Tablet only) */}
               <button
                 type="button"
                 className="sidebar-collapse-btn d-none d-md-flex"
@@ -93,7 +127,6 @@ export const Sidebar = () => {
                 title="Click to expand sidebar"
                 style={{ cursor: 'pointer' }}
               />
-              {/* Sidebar Expand Button - Desktop & Tablet only (strictly hidden on mobile) */}
               <button
                 type="button"
                 className="sidebar-expand-btn d-none d-md-flex"
@@ -107,38 +140,54 @@ export const Sidebar = () => {
           )}
         </div>
 
-        {/* Navigation Items */}
+        {/* Categorized Navigation Items */}
         <div className="sidebar-nav-container">
-          {navItems.map((item) => {
-            const isActive = currentPage === item.id;
-            return (
-              <button
-                key={item.id}
-                type="button"
-                className={`sidebar-link ${isActive ? 'active' : ''}`}
-                onClick={() => handleNavClick(item.id)}
-                title={isCollapsed ? item.label : undefined}
-              >
-                <i className={`bi ${item.icon}`}></i>
-                {!isCollapsed && <span>{item.label}</span>}
-                {item.badge && !isCollapsed && (
-                  <span className="nav-badge status-low-stock">{item.badge}</span>
-                )}
-              </button>
-            );
-          })}
+          {navGroups.map((group) => (
+            <div key={group.group} className="mb-2">
+              {!isCollapsed && (
+                <div className="nav-section-label">
+                  {group.group}
+                </div>
+              )}
+
+              {group.items.map((item) => {
+                const isActive = currentPage === item.id;
+                return (
+                  <button
+                    key={item.id}
+                    type="button"
+                    className={`sidebar-link ${isActive ? 'active' : ''} ${item.highlight ? 'has-alert' : ''}`}
+                    onClick={() => handleNavClick(item.id)}
+                    title={isCollapsed ? item.label : undefined}
+                  >
+                    <i className={`bi ${item.icon}`}></i>
+                    {!isCollapsed && <span>{item.label}</span>}
+                    {item.badge && !isCollapsed && (
+                      <span className={`nav-badge ${
+                        item.badgeVariant === 'danger' ? 'bg-danger text-white' :
+                        item.badgeVariant === 'success' ? 'bg-success text-white' :
+                        'status-low-stock'
+                      }`}>
+                        {item.badge}
+                      </span>
+                    )}
+                  </button>
+                );
+              })}
+            </div>
+          ))}
         </div>
 
-        {/* Sidebar Footer with Logout */}
+        {/* Sidebar Footer with Logout Button */}
         <div className="sidebar-footer">
           <button
             type="button"
             className="sidebar-link btn-logout"
             onClick={handleLogout}
-            title={isCollapsed ? "Logout" : undefined}
+            title={isCollapsed ? "Sign Out" : undefined}
           >
             <i className="bi bi-box-arrow-left"></i>
-            {!isCollapsed && <span>Logout</span>}
+            {!isCollapsed && <span>Sign Out</span>}
           </button>
         </div>
       </aside>

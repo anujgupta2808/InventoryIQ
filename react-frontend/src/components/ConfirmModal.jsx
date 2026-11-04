@@ -4,7 +4,18 @@ import { useInventory } from '../context/InventoryContext';
 export const ConfirmModal = () => {
   const { confirmModal, closeConfirm } = useInventory();
 
-  if (!confirmModal.isOpen) return null;
+  if (!confirmModal || !confirmModal.isOpen) return null;
+
+  const handleConfirm = () => {
+    if (typeof confirmModal.onConfirm === 'function') {
+      try {
+        confirmModal.onConfirm();
+      } catch (err) {
+        console.error('Confirm modal action failed:', err);
+      }
+    }
+    closeConfirm();
+  };
 
   return (
     <div className="iq-modal-backdrop" onClick={closeConfirm}>
@@ -26,12 +37,12 @@ export const ConfirmModal = () => {
             className="btn btn-secondary-custom"
             onClick={closeConfirm}
           >
-            Cancel
+            {confirmModal.cancelText || 'Cancel'}
           </button>
           <button
             type="button"
             className={`btn ${confirmModal.confirmVariant === 'danger' ? 'btn-danger' : 'btn-gold'}`}
-            onClick={confirmModal.onConfirm}
+            onClick={handleConfirm}
           >
             {confirmModal.confirmText || 'Confirm'}
           </button>

@@ -4,7 +4,6 @@ import {
   INITIAL_SALES,
   INITIAL_PURCHASES,
   INITIAL_SUPPLIERS,
-  INITIAL_CUSTOMERS,
   INITIAL_SESSIONS,
   INITIAL_AUDIT_LOGS,
   DEFAULT_USERS,
@@ -64,6 +63,9 @@ export const InventoryProvider = ({ children }) => {
   const [isAuthenticated, setIsAuthenticated] = useState(Boolean(initialSession));
   const [user, setUser] = useState(initialSession ? initialSession.user : null);
 
+  // Password reset target state (for forgot -> reset password workflow)
+  const [resetTargetEmail, setResetTargetEmail] = useState('');
+
   // Central Application Data States
   const [categories, setCategories] = useState(() => {
     const saved = loadState('categories', []);
@@ -73,21 +75,10 @@ export const InventoryProvider = ({ children }) => {
   const [sales, setSales] = useState(() => loadState('sales', INITIAL_SALES));
   const [purchases, setPurchases] = useState(() => loadState('purchases', INITIAL_PURCHASES));
   const [suppliers, setSuppliers] = useState(() => loadState('suppliers', INITIAL_SUPPLIERS));
-  const [customers, setCustomers] = useState(() => loadState('customers', INITIAL_CUSTOMERS));
   const [sessions, setSessions] = useState(() => {
     const saved = loadState('sessions', INITIAL_SESSIONS);
     if (saved && saved.length > 0) return saved;
-    if (initialSession) {
-      return [{
-        id: 'SES-' + Math.floor(1000 + Math.random() * 9000),
-        device: typeof navigator !== 'undefined' && /Mobi|Android/i.test(navigator.userAgent) ? 'Mobile Browser' : 'Chrome / Desktop',
-        ip: '103.21.244.18',
-        location: 'India',
-        lastActive: 'Just now',
-        current: true
-      }];
-    }
-    return [];
+    return INITIAL_SESSIONS;
   });
   const [auditLogs, setAuditLogs] = useState(() => loadState('auditLogs', INITIAL_AUDIT_LOGS));
 
@@ -102,81 +93,74 @@ export const InventoryProvider = ({ children }) => {
 
   useEffect(() => {
     document.documentElement.setAttribute('data-theme', theme);
-    document.documentElement.setAttribute('data-bs-theme', theme);
     try {
       localStorage.setItem('iq_theme', theme);
     } catch (e) {
-      console.warn(e);
+      console.warn('Failed to persist theme:', e);
     }
   }, [theme]);
 
   const toggleTheme = () => {
-    setTheme(prev => {
-      const next = prev === 'dark' ? 'light' : 'dark';
-      showToast('Theme Changed', `Switched to ${next === 'dark' ? 'Dark' : 'Light'} mode.`, 'info');
-      return next;
-    });
+    setTheme(prev => (prev === 'dark' ? 'light' : 'dark'));
   };
 
-  // Navigation & View State (denied to dashboard unless authenticated)
-  const [currentPage, setCurrentPage] = useState(() => {
-    return initialSession ? 'dashboard' : 'login';
-  });
-
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(() => {
-    if (typeof window !== 'undefined') {
-      return window.innerWidth >= 768 && window.innerWidth < 1024;
-    }
-    return false;
-  });
+  // Navigation & Interactive Shell State
+  const [currentPage, setCurrentPage] = useState('dashboard');
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+
+  // Modals & Overlay Portals
   const [isGlobalSearchOpen, setIsGlobalSearchOpen] = useState(false);
-
-  // Responsive Breakpoint Handler
-  useEffect(() => {
-    let prevWidth = window.innerWidth;
-
-    const handleResize = () => {
-      const width = window.innerWidth;
-
-      if (width < 768 && prevWidth >= 768) {
-        setMobileMenuOpen(false);
-      } else if (width >= 768 && width < 1024 && (prevWidth < 768 || prevWidth >= 1024)) {
-        setSidebarCollapsed(true);
-        setMobileMenuOpen(false);
-      } else if (width >= 1024 && prevWidth < 1024) {
-        setSidebarCollapsed(false);
-        setMobileMenuOpen(false);
-      }
-
-      prevWidth = width;
-    };
-
-    window.addEventListener('resize', handleResize);
-    return () => window.removeEventListener('resize', handleResize);
-  }, []);
-
-  // Ensure mobile menu closes upon route/page changes
-  useEffect(() => {
-    setMobileMenuOpen(false);
-  }, [currentPage]);
-
-  // Global Dialogs & Invoices
   const [activeInvoice, setActiveInvoice] = useState(null);
   const [isInvoiceOpen, setIsInvoiceOpen] = useState(false);
+
+  // Global Confirmation Dialog
   const [confirmModal, setConfirmModal] = useState({
     isOpen: false,
     title: '',
     message: '',
     confirmText: 'Confirm',
+    cancelText: 'Cancel',
     confirmVariant: 'danger',
     onConfirm: () => {}
   });
 
-  // Toasts
+  const openConfirm = ({
+    title,
+    message,
+    confirmText = 'Confirm',
+    cancelText = 'Cancel',
+    confirmVariant = 'danger',
+    onConfirm
+  }) => {
+    setConfirmModal({
+      isOpen: true,
+      title,
+      message,
+      confirmText,
+      cancelText,
+      confirmVariant,
+      onConfirm: () => {
+        if (typeof onConfirm === 'function') {
+          try {
+            onConfirm();
+          } catch (err) {
+            console.error('Action error:', err);
+          }
+        }
+        closeConfirm();
+      }
+    });
+  };
+
+  const closeConfirm = () => {
+    setConfirmModal(prev => ({ ...prev, isOpen: false }));
+  };
+
+  // Toast Notifications
   const [toasts, setToasts] = useState([]);
 
-  // Sync to LocalStorage
+  // Auto-sync State to LocalStorage
   useEffect(() => {
     try {
       localStorage.setItem('iq_v3_users', JSON.stringify(users));
@@ -185,15 +169,15 @@ export const InventoryProvider = ({ children }) => {
 
   useEffect(() => {
     try {
-      localStorage.setItem('iq_v3_categories', JSON.stringify(categories));
-    } catch (e) { console.warn(e); }
-  }, [categories]);
-
-  useEffect(() => {
-    try {
       localStorage.setItem('iq_v3_products', JSON.stringify(products));
     } catch (e) { console.warn(e); }
   }, [products]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem('iq_v3_categories', JSON.stringify(categories));
+    } catch (e) { console.warn(e); }
+  }, [categories]);
 
   useEffect(() => {
     try {
@@ -215,12 +199,6 @@ export const InventoryProvider = ({ children }) => {
 
   useEffect(() => {
     try {
-      localStorage.setItem('iq_v3_customers', JSON.stringify(customers));
-    } catch (e) { console.warn(e); }
-  }, [customers]);
-
-  useEffect(() => {
-    try {
       localStorage.setItem('iq_v3_sessions', JSON.stringify(sessions));
     } catch (e) { console.warn(e); }
   }, [sessions]);
@@ -233,48 +211,29 @@ export const InventoryProvider = ({ children }) => {
 
   // Toast Helper
   const showToast = (title, message, type = 'success') => {
-    const id = Date.now() + Math.random();
+    const id = Date.now() + Math.random().toString(36).substring(2, 6);
     setToasts(prev => [...prev, { id, title, message, type }]);
     setTimeout(() => {
       setToasts(prev => prev.filter(t => t.id !== id));
-    }, 4000);
+    }, 4500);
   };
 
   const removeToast = (id) => {
     setToasts(prev => prev.filter(t => t.id !== id));
   };
 
-  // Confirm Modal Helper
-  const openConfirm = ({ title, message, confirmText = 'Delete', confirmVariant = 'danger', onConfirm }) => {
-    setConfirmModal({
-      isOpen: true,
-      title,
-      message,
-      confirmText,
-      confirmVariant,
-      onConfirm: () => {
-        onConfirm();
-        setConfirmModal(prev => ({ ...prev, isOpen: false }));
-      }
-    });
-  };
-
-  const closeConfirm = () => {
-    setConfirmModal(prev => ({ ...prev, isOpen: false }));
-  };
-
-  // Audit Logging Helper
-  const addAuditLog = (action, details, status = 'Success', actorName = null, actorRole = null) => {
+  // Audit Logger
+  const addAuditLog = (action, details = '', status = 'Success', customUser = null, customRole = null) => {
     const now = new Date();
-    const timeStr = `Today, ${now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
+    const timeStr = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    const dateStr = now.toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' });
     const newLog = {
-      id: Date.now(),
+      id: Date.now() + Math.floor(Math.random() * 100),
+      timestamp: `${dateStr} at ${timeStr}`,
       action,
-      user: actorName || user?.name || 'Administrator',
-      role: actorRole || user?.role || 'Admin',
-      timestamp: timeStr,
-      ip: '103.21.244.18',
       details,
+      user: customUser || user?.name || 'Administrator',
+      role: customRole || user?.role || 'Admin',
       status
     };
     setAuditLogs(prev => [newLog, ...prev]);
@@ -342,14 +301,22 @@ export const InventoryProvider = ({ children }) => {
   };
 
   // Registration & immediate session creation
-  const register = ({ fullName, email, password }) => {
+  const register = ({ fullName, email, password, organizationName, organizationType, gstin }) => {
     const cleanEmail = String(email || '').trim().toLowerCase();
     const cleanName = String(fullName || '').trim();
     const cleanPass = String(password || '').trim();
+    const cleanOrgName = String(organizationName || '').trim() || `${cleanName}'s Store`;
+    const cleanOrgType = String(organizationType || '').trim() || 'Retail Store / Shop';
+    const cleanGstin = String(gstin || '').trim().toUpperCase();
 
     if (!cleanName || !cleanEmail || !cleanPass) {
       showToast('Validation Error', 'Please complete all required fields.', 'danger');
       return { success: false, message: 'Missing fields.' };
+    }
+
+    if (!cleanOrgName) {
+      showToast('Validation Error', 'Please enter your organization or company name.', 'danger');
+      return { success: false, message: 'Missing organization name.' };
     }
 
     // Check duplicate email
@@ -365,7 +332,10 @@ export const InventoryProvider = ({ children }) => {
       email: cleanEmail,
       password: cleanPass,
       role: 'Admin',
-      businessName: `${cleanName}'s Store`,
+      organizationName: cleanOrgName,
+      businessName: cleanOrgName,
+      organizationType: cleanOrgType,
+      gstin: cleanGstin,
       phone: '',
       currency: 'INR',
       currencySymbol: '₹'
@@ -406,6 +376,148 @@ export const InventoryProvider = ({ children }) => {
     return { success: true, user: newUser };
   };
 
+  // Request password reset verification link
+  const requestPasswordReset = (email) => {
+    const cleanEmail = String(email || '').trim().toLowerCase();
+    setResetTargetEmail(cleanEmail);
+    addAuditLog('Password Reset Requested', `Reset requested for ${cleanEmail}`);
+    showToast('Reset Instructions Dispatched', `Password reset verification link sent to ${cleanEmail}.`, 'info');
+    return { success: true };
+  };
+
+  // Actual Reset Password handler that updates user record in database
+  const resetPassword = ({ email, newPassword }) => {
+    const cleanEmail = String(email || '').trim().toLowerCase();
+    const cleanPass = String(newPassword || '').trim();
+
+    if (!cleanEmail || !cleanPass) {
+      showToast('Validation Error', 'Email and new password are required.', 'danger');
+      return { success: false, message: 'Missing fields' };
+    }
+
+    if (cleanPass.length < 8) {
+      showToast('Validation Error', 'Password must be at least 8 characters long.', 'danger');
+      return { success: false, message: 'Password too short' };
+    }
+
+    const userIndex = users.findIndex(u => u.email.toLowerCase() === cleanEmail);
+    if (userIndex === -1) {
+      showToast('Account Not Found', `No registered account found for ${cleanEmail}.`, 'danger');
+      return { success: false, message: 'User not found' };
+    }
+
+    const updatedUsers = users.map((u, i) => {
+      if (i === userIndex) {
+        return { ...u, password: cleanPass };
+      }
+      return u;
+    });
+
+    setUsers(updatedUsers);
+    try {
+      localStorage.setItem('iq_v3_users', JSON.stringify(updatedUsers));
+    } catch (e) {
+      console.warn(e);
+    }
+
+    // If currently logged-in user matches, update current session as well
+    if (user && user.email.toLowerCase() === cleanEmail) {
+      const updatedUser = { ...user, password: cleanPass };
+      setUser(updatedUser);
+      try {
+        const sess = getStoredSession();
+        if (sess) {
+          sess.user = updatedUser;
+          if (localStorage.getItem('iq_v3_session')) {
+            localStorage.setItem('iq_v3_session', JSON.stringify(sess));
+          } else {
+            sessionStorage.setItem('iq_v3_session', JSON.stringify(sess));
+          }
+        }
+      } catch (e) {
+        console.warn(e);
+      }
+    }
+
+    addAuditLog('Password Reset Completed', `Password updated for account ${cleanEmail}`);
+    showToast('Password Updated', 'Your password has been successfully reset. Please log in with your new credentials.', 'success');
+    return { success: true };
+  };
+
+  // Change password for currently logged-in user
+  const changePassword = ({ currentPassword, newPassword }) => {
+    if (!user) {
+      showToast('Auth Error', 'You must be logged in to change your password.', 'danger');
+      return { success: false, message: 'Not logged in' };
+    }
+
+    const cleanCurrent = String(currentPassword || '').trim();
+    const cleanNew = String(newPassword || '').trim();
+
+    if (user.password && user.password !== cleanCurrent) {
+      showToast('Verification Failed', 'Current password is incorrect.', 'danger');
+      return { success: false, message: 'Current password incorrect' };
+    }
+
+    if (cleanNew.length < 8) {
+      showToast('Validation Error', 'New password must be at least 8 characters long.', 'danger');
+      return { success: false, message: 'Password too short' };
+    }
+
+    const updatedUser = { ...user, password: cleanNew };
+    setUser(updatedUser);
+
+    const updatedUsers = users.map(u => u.email.toLowerCase() === user.email.toLowerCase() ? updatedUser : u);
+    setUsers(updatedUsers);
+
+    try {
+      localStorage.setItem('iq_v3_users', JSON.stringify(updatedUsers));
+      const sess = getStoredSession();
+      if (sess) {
+        sess.user = updatedUser;
+        if (localStorage.getItem('iq_v3_session')) {
+          localStorage.setItem('iq_v3_session', JSON.stringify(sess));
+        } else {
+          sessionStorage.setItem('iq_v3_session', JSON.stringify(sess));
+        }
+      }
+    } catch (e) {
+      console.warn(e);
+    }
+
+    addAuditLog('Password Changed', `User ${user.name} changed account password`);
+    showToast('Security Alert', 'Your account password has been updated successfully.', 'success');
+    return { success: true };
+  };
+
+  // Update user profile information
+  const updateUserProfile = (profileData) => {
+    if (!user) return;
+    const updated = {
+      ...user,
+      ...profileData
+    };
+    setUser(updated);
+    const updatedUsers = users.map(u => u.email.toLowerCase() === user.email.toLowerCase() ? updated : u);
+    setUsers(updatedUsers);
+    try {
+      localStorage.setItem('iq_v3_users', JSON.stringify(updatedUsers));
+      const sess = getStoredSession();
+      if (sess) {
+        sess.user = updated;
+        if (localStorage.getItem('iq_v3_session')) {
+          localStorage.setItem('iq_v3_session', JSON.stringify(sess));
+        } else {
+          sessionStorage.setItem('iq_v3_session', JSON.stringify(sess));
+        }
+      }
+    } catch (e) {
+      console.warn(e);
+    }
+    addAuditLog('Profile Updated', `Updated profile settings for ${updated.name}`);
+    showToast('Profile Saved', 'Profile settings updated successfully.', 'success');
+  };
+
   // Logout & session termination
   const logout = () => {
     try {
@@ -441,8 +553,10 @@ export const InventoryProvider = ({ children }) => {
 
   // Product CRUD
   const addProduct = (prodData) => {
-    const stock = Number(prodData.stock) || 0;
-    const minStock = Number(prodData.minStock) || 0;
+    const stock = Math.max(0, parseInt(prodData.stock, 10) || 0);
+    const minStock = Math.max(0, parseInt(prodData.minStock, 10) || 0);
+    const price = Math.max(0, parseFloat(prodData.price) || 0);
+    const costPrice = Math.max(0, parseFloat(prodData.costPrice) || 0);
     const status = stock <= 0 ? 'Out of Stock' : (stock <= minStock ? 'Low Stock' : 'In Stock');
     const newId = products.length > 0 ? Math.max(...products.map(p => p.id)) + 1 : 1;
     
@@ -451,56 +565,69 @@ export const InventoryProvider = ({ children }) => {
     }
 
     const newProduct = {
-      ...prodData,
       id: newId,
+      name: String(prodData.name || '').trim(),
+      sku: String(prodData.sku || `SKU-${Math.floor(100 + Math.random() * 900)}`).trim(),
       category: String(prodData.category || 'General').trim(),
       stock,
       minStock,
-      price: Number(prodData.price) || 0,
-      costPrice: Number(prodData.costPrice) || 0,
+      price,
+      costPrice,
+      unit: prodData.unit || 'Piece',
+      supplierId: prodData.supplierId ? Number(prodData.supplierId) : null,
+      supplierName: prodData.supplierName || 'Primary Supplier',
       status
     };
 
     setProducts(prev => [newProduct, ...prev]);
-    addAuditLog('Product Added', `Added ${newProduct.name} (SKU: ${newProduct.sku})`);
-    showToast('Product Created', `${newProduct.name} has been added successfully.`);
+    addAuditLog('Product Added', `Added ${newProduct.name} (${newProduct.sku})`);
+    showToast('Product Added', `"${newProduct.name}" added to inventory.`);
     return newProduct;
   };
 
   const updateProduct = (id, prodData) => {
+    const stock = Math.max(0, parseInt(prodData.stock, 10) || 0);
+    const minStock = Math.max(0, parseInt(prodData.minStock, 10) || 0);
+    const price = Math.max(0, parseFloat(prodData.price) || 0);
+    const costPrice = Math.max(0, parseFloat(prodData.costPrice) || 0);
+    const status = stock <= 0 ? 'Out of Stock' : (stock <= minStock ? 'Low Stock' : 'In Stock');
+
     if (prodData.category && String(prodData.category).trim()) {
       addCategory(String(prodData.category).trim());
     }
+
     setProducts(prev => prev.map(p => {
       if (p.id === Number(id)) {
-        const stock = prodData.stock !== undefined ? Number(prodData.stock) : p.stock;
-        const minStock = prodData.minStock !== undefined ? Number(prodData.minStock) : p.minStock;
-        const status = stock <= 0 ? 'Out of Stock' : (stock <= minStock ? 'Low Stock' : 'In Stock');
         return {
           ...p,
           ...prodData,
-          category: prodData.category !== undefined ? String(prodData.category).trim() : p.category,
+          id: p.id,
+          name: String(prodData.name || p.name).trim(),
+          sku: String(prodData.sku || p.sku).trim(),
+          category: String(prodData.category || p.category).trim(),
           stock,
           minStock,
-          price: prodData.price !== undefined ? Number(prodData.price) : p.price,
-          costPrice: prodData.costPrice !== undefined ? Number(prodData.costPrice) : p.costPrice,
+          price,
+          costPrice,
+          unit: prodData.unit || p.unit,
           status
         };
       }
       return p;
     }));
-    addAuditLog('Product Updated', `Updated product ID #${id}`);
+
+    addAuditLog('Product Updated', `Updated product #${id}`);
     showToast('Product Updated', 'Product changes saved successfully.');
   };
 
   const deleteProduct = (id) => {
-    const item = products.find(p => p.id === Number(id));
-    setProducts(prev => prev.filter(p => p.id !== Number(id)));
-    addAuditLog('Product Deleted', `Removed ${item?.name || 'Product'}`);
+    const p = products.find(item => item.id === Number(id));
+    setProducts(prev => prev.filter(item => item.id !== Number(id)));
+    addAuditLog('Product Deleted', `Removed ${p?.name || 'Product'} (${p?.sku || id})`);
     showToast('Product Deleted', 'The product has been removed from catalog.', 'warning');
   };
 
-  // Sales Creation, Customer Auto-Creation/Sync & Stock Deduction
+  // Sales Creation & Immediate Stock Deduction
   const createSale = (saleData) => {
     const newSaleId = `S-${1001 + sales.length}`;
     const now = new Date();
@@ -520,122 +647,186 @@ export const InventoryProvider = ({ children }) => {
       }));
     }
 
-    // 2. Auto-upload / sync customer in Customer CRM
-    let assignedCustomerId = saleData.customerId;
-    const custName = (saleData.customerName || '').trim();
+    const custName = (saleData.customerName || '').trim() || 'Walk-in Customer';
     const custPhone = (saleData.customerPhone || '').trim();
     const custEmail = (saleData.customerEmail || '').trim();
     const custAddress = (saleData.customerAddress || '').trim();
 
-    if (assignedCustomerId) {
-      // Existing customer: update spending and order count
-      setCustomers(prev => prev.map(c => {
-        if (c.id === Number(assignedCustomerId)) {
-          return {
-            ...c,
-            totalSpending: (Number(c.totalSpending) || 0) + saleAmount,
-            totalOrders: (Number(c.totalOrders) || 0) + 1
-          };
-        }
-        return c;
-      }));
-    } else if (custName) {
-      // Check if customer already exists by phone or name
-      setCustomers(prev => {
-        const existingIdx = prev.findIndex(c => 
-          (custPhone && custPhone !== 'N/A' && c.phone === custPhone) ||
-          (c.name.toLowerCase() === custName.toLowerCase())
-        );
+    // Paid amount & Due calculations
+    const paidAmount = saleData.paidAmount !== undefined
+      ? Math.max(0, Math.min(saleAmount, Number(saleData.paidAmount) || 0))
+      : saleAmount;
+    const dueAmount = Math.max(0, saleAmount - paidAmount);
+    const paymentStatus = dueAmount <= 0 ? 'Paid' : (paidAmount > 0 ? 'Partial' : 'Unpaid');
 
-        if (existingIdx >= 0) {
-          assignedCustomerId = prev[existingIdx].id;
-          return prev.map((c, idx) => {
-            if (idx === existingIdx) {
-              return {
-                ...c,
-                totalSpending: (Number(c.totalSpending) || 0) + saleAmount,
-                totalOrders: (Number(c.totalOrders) || 0) + 1,
-                phone: (c.phone === 'N/A' || !c.phone) && custPhone ? custPhone : c.phone,
-                email: !c.email && custEmail ? custEmail : c.email,
-                address: !c.address && custAddress ? custAddress : c.address
-              };
-            }
-            return c;
-          });
-        } else {
-          // Auto-create new customer in Customer CRM!
-          const newId = prev.length > 0 ? Math.max(...prev.map(c => c.id)) + 1 : 1;
-          assignedCustomerId = newId;
-          const newCustomer = {
-            id: newId,
-            name: custName,
-            phone: custPhone || 'N/A',
-            email: custEmail || '',
-            address: custAddress || 'Store Customer',
-            totalSpending: saleAmount,
-            totalOrders: 1,
-            status: 'Active'
-          };
-          addAuditLog('Customer Auto-Registered', `Customer ${newCustomer.name} auto-added to CRM from Sale #${newSaleId}`);
-          return [newCustomer, ...prev];
-        }
+    const paymentHistory = [];
+    if (paidAmount > 0) {
+      paymentHistory.push({
+        id: 'PAY-' + Date.now().toString().slice(-6),
+        date: dateStr,
+        amount: paidAmount,
+        method: saleData.paymentMethod || 'UPI',
+        note: 'Initial payment at invoice creation'
       });
     }
 
     const newSale = {
       id: newSaleId,
       date: dateStr,
-      ...saleData,
-      customerId: assignedCustomerId,
-      status: 'Completed'
+      customerName: custName,
+      customerPhone: custPhone,
+      customerEmail: custEmail,
+      customerAddress: custAddress,
+      items: saleData.items || [],
+      subtotal: Number(saleData.subtotal) || saleAmount,
+      tax: Number(saleData.tax) || 0,
+      discount: Number(saleData.discount) || 0,
+      amount: saleAmount,
+      paidAmount,
+      dueAmount,
+      status: paymentStatus,
+      paymentMethod: saleData.paymentMethod || 'UPI',
+      paymentHistory
     };
 
     setSales(prev => [newSale, ...prev]);
-    addAuditLog('Sale Created', `Sale #${newSaleId} – ₹${Number(saleData.amount).toLocaleString('en-IN')}`);
-    showToast('Sale Completed', `Invoice #${newSaleId} generated, customer data synced, and inventory stock deducted.`);
+    addAuditLog('Sale Created', `Sale #${newSaleId} (${custName}) – Billed ₹${saleAmount.toLocaleString('en-IN')}, Received ₹${paidAmount.toLocaleString('en-IN')}${dueAmount > 0 ? `, Due ₹${dueAmount.toLocaleString('en-IN')}` : ''}`);
+    showToast('Sale Completed', `Invoice #${newSaleId} generated. Status: ${paymentStatus}.`);
     return newSale;
+  };
+
+  // Record / Collect Payment for a Specific Invoice or Person Ledger (Accounts Receivable)
+  const recordPayment = ({ saleId, customerName, paymentAmount, paymentMethod = 'UPI', note = '' }) => {
+    const payAmt = Number(paymentAmount) || 0;
+    if (payAmt <= 0) {
+      showToast('Invalid Amount', 'Payment amount must be greater than zero.', 'danger');
+      return { success: false, message: 'Invalid payment amount' };
+    }
+
+    const now = new Date();
+    const dateStr = now.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+    const paymentId = 'PAY-' + Date.now().toString().slice(-6);
+    let remainingToAllocate = payAmt;
+    const affectedSales = [];
+
+    setSales(prevSales => {
+      // 1. Targeted Invoice Settlement
+      if (saleId) {
+        return prevSales.map(s => {
+          if (s.id === saleId) {
+            const currentTotal = Number(s.amount) || 0;
+            const currentPaid = Number(s.paidAmount !== undefined ? s.paidAmount : (s.status === 'Completed' || s.status === 'Paid' ? s.amount : 0));
+            const newPaid = Math.min(currentTotal, currentPaid + payAmt);
+            const newDue = Math.max(0, currentTotal - newPaid);
+            const newStatus = newDue <= 0 ? 'Paid' : (newPaid > 0 ? 'Partial' : 'Unpaid');
+
+            const historyEntry = {
+              id: paymentId,
+              date: dateStr,
+              amount: payAmt,
+              method: paymentMethod,
+              note: note || `Payment installment received`
+            };
+
+            affectedSales.push(s.id);
+            return {
+              ...s,
+              paidAmount: newPaid,
+              dueAmount: newDue,
+              status: newStatus,
+              paymentHistory: [...(s.paymentHistory || []), historyEntry]
+            };
+          }
+          return s;
+        });
+      }
+
+      // 2. FIFO Settlement across Person's Overdue Invoices
+      if (customerName) {
+        const cleanTarget = customerName.trim().toLowerCase();
+        const updated = [...prevSales];
+
+        // Traverse oldest to newest (sales array has newest at index 0, so iterate backwards)
+        for (let i = updated.length - 1; i >= 0 && remainingToAllocate > 0; i--) {
+          const s = updated[i];
+          if ((s.customerName || '').trim().toLowerCase() === cleanTarget) {
+            const currentTotal = Number(s.amount) || 0;
+            const currentPaid = Number(s.paidAmount !== undefined ? s.paidAmount : (s.status === 'Completed' || s.status === 'Paid' ? s.amount : 0));
+            const currentDue = Math.max(0, currentTotal - currentPaid);
+
+            if (currentDue > 0) {
+              const alloc = Math.min(currentDue, remainingToAllocate);
+              const newPaid = currentPaid + alloc;
+              const newDue = Math.max(0, currentTotal - newPaid);
+              const newStatus = newDue <= 0 ? 'Paid' : (newPaid > 0 ? 'Partial' : 'Unpaid');
+
+              const historyEntry = {
+                id: `${paymentId}-${s.id}`,
+                date: dateStr,
+                amount: alloc,
+                method: paymentMethod,
+                note: note || `Payment installment allocated to #${s.id}`
+              };
+
+              remainingToAllocate -= alloc;
+              affectedSales.push(s.id);
+
+              updated[i] = {
+                ...s,
+                paidAmount: newPaid,
+                dueAmount: newDue,
+                status: newStatus,
+                paymentHistory: [...(s.paymentHistory || []), historyEntry]
+              };
+            }
+          }
+        }
+        return updated;
+      }
+
+      return prevSales;
+    });
+
+    const targetLabel = saleId ? `Invoice #${saleId}` : `Client "${customerName}"`;
+    addAuditLog('Payment Received', `Collected ₹${payAmt.toLocaleString('en-IN')} via ${paymentMethod} for ${targetLabel}`);
+    showToast('Payment Collected', `Successfully recorded ₹${payAmt.toLocaleString('en-IN')} via ${paymentMethod} for ${targetLabel}.`, 'success');
+    return { success: true, paymentId, affectedSales };
   };
 
   // Purchases PO Creation, Supplier Auto-Sync & Inventory Auto-Stocking/Creation
   const createPurchase = (poData) => {
-    const newPoId = `P-${2001 + purchases.length}`;
+    const newPoId = `PO-${2001 + purchases.length}`;
     const now = new Date();
     const dateStr = now.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
-    const poAmount = Number(poData.amount) || 0;
 
-    // 1. Auto-upload / sync supplier in Contact / Suppliers
     let finalSupplierId = poData.supplierId;
-    let finalSupplierName = (poData.supplierName || '').trim();
+    let finalSupplierName = poData.supplierName;
 
-    if (poData.newSupplierData) {
-      // User entered a new supplier in the PO modal
-      const supp = poData.newSupplierData;
-      finalSupplierName = (supp.name || '').trim();
-      const newSuppId = suppliers.length > 0 ? Math.max(...suppliers.map(s => s.id)) + 1 : 1;
-      finalSupplierId = newSuppId;
-
-      const newSupplier = {
-        id: newSuppId,
-        name: finalSupplierName,
-        contactPerson: supp.contactPerson || '',
-        phone: supp.phone || '',
-        email: supp.email || '',
-        address: supp.address || '',
+    // 1. Auto-save new supplier to Contacts if created inline
+    if (poData.newSupplierData && poData.newSupplierData.name) {
+      const newSupId = suppliers.length > 0 ? Math.max(...suppliers.map(s => s.id)) + 1 : 1;
+      const createdSup = {
+        id: newSupId,
+        name: poData.newSupplierData.name,
+        contactPerson: poData.newSupplierData.contactPerson || 'Vendor Rep',
+        email: poData.newSupplierData.email || 'orders@supplier.com',
+        phone: poData.newSupplierData.phone || '+91 98765 00000',
+        address: poData.newSupplierData.address || 'Vendor Address',
         status: 'Active',
-        totalPurchases: `₹${poAmount.toLocaleString('en-IN')}`
+        totalPurchases: `₹${Number(poData.amount).toLocaleString('en-IN')}`
       };
-
-      setSuppliers(prev => [newSupplier, ...prev]);
-      addAuditLog('Contact Auto-Registered', `Supplier ${newSupplier.name} auto-registered from PO #${newPoId}`);
+      finalSupplierId = newSupId;
+      finalSupplierName = createdSup.name;
+      setSuppliers(prev => [createdSup, ...prev]);
+      addAuditLog('Supplier Auto-Added', `Supplier ${createdSup.name} auto-added from PO #${newPoId}`);
     } else if (finalSupplierId) {
-      // Existing supplier selected: update their totalPurchases
+      // Update existing supplier spend tally
       setSuppliers(prev => prev.map(s => {
         if (s.id === Number(finalSupplierId)) {
-          const currentTotal = Number(String(s.totalPurchases || '0').replace(/[^0-9]/g, '')) || 0;
-          const newTotal = currentTotal + poAmount;
+          const currentTotal = parseInt(String(s.totalPurchases || '0').replace(/[^0-9]/g, ''), 10) || 0;
           return {
             ...s,
-            totalPurchases: `₹${newTotal.toLocaleString('en-IN')}`
+            totalPurchases: `₹${(currentTotal + Number(poData.amount)).toLocaleString('en-IN')}`
           };
         }
         return s;
@@ -644,26 +835,27 @@ export const InventoryProvider = ({ children }) => {
 
     const newPo = {
       id: newPoId,
-      date: dateStr,
-      ...poData,
       supplierId: finalSupplierId,
-      supplierName: finalSupplierName
+      supplierName: finalSupplierName,
+      date: dateStr,
+      amount: Number(poData.amount) || 0,
+      status: poData.status || 'Completed',
+      itemsCount: poData.items ? poData.items.length : 1,
+      items: poData.items || []
     };
 
-    // 2. Auto-replenish stock or Auto-add new product in Inventory
+    // 2. If status is Completed, immediately replenish or create products in Inventory!
     if (newPo.status === 'Completed' && poData.items && poData.items.length > 0) {
       setProducts(prev => {
         let updated = [...prev];
 
         poData.items.forEach(item => {
-          // Check if product exists by ID or by Name
-          const existingIdx = updated.findIndex(p => 
+          const existingIdx = updated.findIndex(p =>
             (item.productId && p.id === Number(item.productId)) ||
             (item.name && p.name.trim().toLowerCase() === item.name.trim().toLowerCase())
           );
 
           if (existingIdx >= 0) {
-            // Existing product: add quantity to stock, update cost price
             const existing = updated[existingIdx];
             const newStock = existing.stock + Number(item.qty);
             const status = newStock <= 0 ? 'Out of Stock' : (newStock <= existing.minStock ? 'Low Stock' : 'In Stock');
@@ -671,11 +863,9 @@ export const InventoryProvider = ({ children }) => {
               ...existing,
               stock: newStock,
               costPrice: Number(item.cost) || existing.costPrice,
-              status,
-              supplierName: finalSupplierName || existing.supplierName
+              status
             };
           } else {
-            // Product doesn't exist yet: auto-add to Inventory catalog!
             const newProdId = updated.length > 0 ? Math.max(...updated.map(p => p.id)) + 1 : 1;
             const cost = Number(item.cost) || 0;
             const price = Number(item.price) || Math.round(cost * 1.35) || (cost + 50);
@@ -718,8 +908,12 @@ export const InventoryProvider = ({ children }) => {
     const newSupp = {
       id: newId,
       totalPurchases: '₹0',
-      status: 'Active',
-      ...suppData
+      status: suppData.status || 'Active',
+      name: String(suppData.name || '').trim(),
+      contactPerson: String(suppData.contactPerson || '').trim(),
+      email: String(suppData.email || '').trim(),
+      phone: String(suppData.phone || '').trim(),
+      address: String(suppData.address || '').trim()
     };
     setSuppliers(prev => [newSupp, ...prev]);
     addAuditLog('Supplier Added', `Added supplier ${newSupp.name}`);
@@ -728,7 +922,15 @@ export const InventoryProvider = ({ children }) => {
   };
 
   const updateSupplier = (id, suppData) => {
-    setSuppliers(prev => prev.map(s => s.id === Number(id) ? { ...s, ...suppData } : s));
+    setSuppliers(prev => prev.map(s => s.id === Number(id) ? {
+      ...s,
+      ...suppData,
+      name: String(suppData.name || s.name).trim(),
+      contactPerson: String(suppData.contactPerson ?? s.contactPerson).trim(),
+      email: String(suppData.email || s.email).trim(),
+      phone: String(suppData.phone || s.phone).trim(),
+      address: String(suppData.address ?? s.address).trim()
+    } : s));
     addAuditLog('Supplier Updated', `Updated supplier #${id}`);
     showToast('Supplier Updated', 'Supplier details saved.');
   };
@@ -740,40 +942,17 @@ export const InventoryProvider = ({ children }) => {
     showToast('Supplier Removed', 'Supplier deleted from directory.', 'warning');
   };
 
-  // Customers CRUD
-  const addCustomer = (custData) => {
-    const newId = customers.length > 0 ? Math.max(...customers.map(c => c.id)) + 1 : 1;
-    const newCust = {
-      id: newId,
-      totalSpending: 0,
-      totalOrders: 0,
-      status: 'Active',
-      ...custData
-    };
-    setCustomers(prev => [newCust, ...prev]);
-    addAuditLog('Customer Added', `Added customer ${newCust.name}`);
-    showToast('Customer Created', `${newCust.name} added to records.`);
-    return newCust;
-  };
-
-  const updateCustomer = (id, custData) => {
-    setCustomers(prev => prev.map(c => c.id === Number(id) ? { ...c, ...custData } : c));
-    addAuditLog('Customer Updated', `Updated customer #${id}`);
-    showToast('Customer Updated', 'Customer profile updated.');
-  };
-
-  const deleteCustomer = (id) => {
-    const c = customers.find(item => item.id === Number(id));
-    setCustomers(prev => prev.filter(item => item.id !== Number(id)));
-    addAuditLog('Customer Deleted', `Removed ${c?.name || 'Customer'}`);
-    showToast('Customer Removed', 'Customer deleted from records.', 'warning');
-  };
-
   // Security Sessions
   const revokeSession = (id) => {
-    setSessions(prev => prev.filter(s => s.id !== id));
+    setSessions(prev => prev.filter(s => String(s.id) !== String(id)));
     addAuditLog('Session Revoked', `Terminated session ID ${id}`);
     showToast('Session Revoked', 'The device session has been signed out.', 'warning');
+  };
+
+  const revokeAllOtherSessions = () => {
+    setSessions(prev => prev.filter(s => s.current));
+    addAuditLog('All Sessions Revoked', 'Terminated all remote device sessions');
+    showToast('Sessions Terminated', 'All other active device sessions have been revoked.', 'warning');
   };
 
   // CSV Exporter
@@ -800,16 +979,16 @@ export const InventoryProvider = ({ children }) => {
     showToast('Export Complete', `${filename}.csv has been downloaded.`);
   };
 
-  // Reset to default
+  // Reset demo database to pristine seeds
   const resetAllData = () => {
-    setProducts([]);
+    setProducts(INITIAL_PRODUCTS);
     setCategories([]);
-    setSales([]);
-    setPurchases([]);
-    setSuppliers([]);
-    setCustomers([]);
-    setAuditLogs([]);
-    setSessions([]);
+    setSales(INITIAL_SALES);
+    setPurchases(INITIAL_PURCHASES);
+    setSuppliers(INITIAL_SUPPLIERS);
+    setAuditLogs(INITIAL_AUDIT_LOGS);
+    setSessions(INITIAL_SESSIONS);
+
     localStorage.removeItem('iq_v3_products');
     localStorage.removeItem('iq_v3_categories');
     localStorage.removeItem('iq_v3_sales');
@@ -818,11 +997,23 @@ export const InventoryProvider = ({ children }) => {
     localStorage.removeItem('iq_v3_customers');
     localStorage.removeItem('iq_v3_auditLogs');
     localStorage.removeItem('iq_v3_sessions');
-    showToast('Data Cleared', 'All application data has been wiped.', 'info');
+
+    showToast('Demo Data Restored', 'Pristine demo inventory catalog and records have been restored.', 'success');
   };
 
   // Calculated Dashboard Stats
   const totalSalesVal = sales.reduce((acc, s) => acc + (Number(s.amount) || 0), 0);
+  const totalReceivedVal = sales.reduce((acc, s) => {
+    const paid = s.paidAmount !== undefined
+      ? Number(s.paidAmount) || 0
+      : (s.status === 'Completed' || s.status === 'Paid' ? Number(s.amount) || 0 : 0);
+    return acc + paid;
+  }, 0);
+  const totalDueVal = sales.reduce((acc, s) => {
+    if (s.dueAmount !== undefined) return acc + (Number(s.dueAmount) || 0);
+    const paid = s.status === 'Completed' || s.status === 'Paid' ? Number(s.amount) || 0 : 0;
+    return acc + Math.max(0, (Number(s.amount) || 0) - paid);
+  }, 0);
   const totalPurchasesVal = purchases.reduce((acc, p) => acc + (Number(p.amount) || 0), 0);
   const totalProfit = Math.max(0, totalSalesVal - totalPurchasesVal);
   const lowStockItems = products.filter(p => p.status === 'Low Stock' || p.status === 'Out of Stock');
@@ -830,6 +1021,8 @@ export const InventoryProvider = ({ children }) => {
   const stats = {
     totalProducts: products.length,
     totalSales: totalSalesVal,
+    totalReceived: totalReceivedVal,
+    totalDue: totalDueVal,
     totalPurchases: totalPurchasesVal,
     profit: totalProfit,
     lowStockCount: lowStockItems.length,
@@ -853,8 +1046,6 @@ export const InventoryProvider = ({ children }) => {
     setPurchases,
     suppliers,
     setSuppliers,
-    customers,
-    setCustomers,
     sessions,
     setSessions,
     auditLogs,
@@ -864,6 +1055,12 @@ export const InventoryProvider = ({ children }) => {
     login,
     register,
     logout,
+    resetTargetEmail,
+    setResetTargetEmail,
+    requestPasswordReset,
+    resetPassword,
+    changePassword,
+    updateUserProfile,
     currentPage,
     setCurrentPage,
     isAuthenticated,
@@ -888,14 +1085,13 @@ export const InventoryProvider = ({ children }) => {
     updateProduct,
     deleteProduct,
     createSale,
+    recordPayment,
     createPurchase,
     addSupplier,
     updateSupplier,
     deleteSupplier,
-    addCustomer,
-    updateCustomer,
-    deleteCustomer,
     revokeSession,
+    revokeAllOtherSessions,
     exportCSV,
     resetAllData,
     stats,

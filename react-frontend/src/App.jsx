@@ -13,10 +13,10 @@ import { ToastContainer } from './components/ToastContainer';
 import { DashboardPage } from './pages/DashboardPage';
 import { InventoryPage } from './pages/InventoryPage';
 import { SalesPage } from './pages/SalesPage';
+import { PartyDueTrackerPage } from './pages/PartyDueTrackerPage';
 import { PurchasesPage } from './pages/PurchasesPage';
 import { AnalyticsPage } from './pages/AnalyticsPage';
 import { SuppliersPage } from './pages/SuppliersPage';
-import { CustomersPage } from './pages/CustomersPage';
 import { SettingsPage } from './pages/SettingsPage';
 import { ProfilePage } from './pages/ProfilePage';
 import { SecurityPage } from './pages/SecurityPage';
@@ -27,8 +27,20 @@ import { RegisterPage } from './pages/Auth/RegisterPage';
 import { ForgotPasswordPage } from './pages/Auth/ForgotPasswordPage';
 import { ResetPasswordPage } from './pages/Auth/ResetPasswordPage';
 
+// Legal Pages
+import { TermsOfServicePage } from './pages/Legal/TermsOfServicePage';
+import { PrivacyPolicyPage } from './pages/Legal/PrivacyPolicyPage';
+
 export function App() {
   const { currentPage, isAuthenticated, sidebarCollapsed } = useInventory();
+
+  // Route to Legal Pages (Accessible publicly or from within app)
+  if (currentPage === 'terms') {
+    return <><TermsOfServicePage /><ToastContainer /></>;
+  }
+  if (currentPage === 'privacy') {
+    return <><PrivacyPolicyPage /><ToastContainer /></>;
+  }
 
   // Route to Auth Pages
   if (!isAuthenticated || ['login', 'register', 'forgot-password', 'reset-password'].includes(currentPage)) {
@@ -47,20 +59,24 @@ export function App() {
         return <InventoryPage />;
       case 'sales':
         return <SalesPage />;
+      case 'ledger':
+        return <PartyDueTrackerPage />;
       case 'purchases':
         return <PurchasesPage />;
       case 'analytics':
         return <AnalyticsPage />;
       case 'suppliers':
         return <SuppliersPage />;
-      case 'customers':
-        return <CustomersPage />;
       case 'settings':
         return <SettingsPage />;
       case 'profile':
         return <ProfilePage />;
       case 'security':
         return <SecurityPage />;
+      case 'terms':
+        return <TermsOfServicePage />;
+      case 'privacy':
+        return <PrivacyPolicyPage />;
       default:
         return <DashboardPage />;
     }

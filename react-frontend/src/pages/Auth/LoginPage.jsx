@@ -153,34 +153,28 @@ export const LoginPage = () => {
 
             <div className="auth-divider">or continue with</div>
 
-            <div className="social-login-grid">
+            <div className="social-login-grid" style={{ gridTemplateColumns: 'repeat(2, 1fr)' }}>
               <button
                 type="button"
-                className="social-btn"
-                title="Google"
+                className="social-btn d-flex align-items-center justify-content-center gap-2 text-white"
+                title="Continue with Google"
                 onClick={handleDemoLogin}
               >
-                <i className="bi bi-google"></i>
+                <i className="bi bi-google text-danger"></i>
+                <span className="small fw-medium">Google</span>
               </button>
               <button
                 type="button"
-                className="social-btn"
-                title="GitHub"
+                className="social-btn d-flex align-items-center justify-content-center gap-2 text-white"
+                title="Continue with Microsoft"
                 onClick={handleDemoLogin}
               >
-                <i className="bi bi-github"></i>
-              </button>
-              <button
-                type="button"
-                className="social-btn"
-                title="Microsoft"
-                onClick={handleDemoLogin}
-              >
-                <i className="bi bi-microsoft"></i>
+                <i className="bi bi-microsoft text-info"></i>
+                <span className="small fw-medium">Microsoft</span>
               </button>
             </div>
 
-            <div className="text-center text-secondary small">
+            <div className="text-center text-secondary small mb-3">
               Don't have an account?{' '}
               <button
                 type="button"
@@ -189,6 +183,24 @@ export const LoginPage = () => {
                 onClick={() => setCurrentPage('register')}
               >
                 Register
+              </button>
+            </div>
+
+            <div className="text-center text-muted border-top border-secondary pt-3" style={{ fontSize: '0.75rem' }}>
+              <button
+                type="button"
+                className="btn btn-link p-0 text-secondary text-decoration-none small me-2"
+                onClick={() => setCurrentPage('terms')}
+              >
+                Terms of Service
+              </button>
+              •
+              <button
+                type="button"
+                className="btn btn-link p-0 text-secondary text-decoration-none small ms-2"
+                onClick={() => setCurrentPage('privacy')}
+              >
+                Privacy Policy
               </button>
             </div>
           </form>

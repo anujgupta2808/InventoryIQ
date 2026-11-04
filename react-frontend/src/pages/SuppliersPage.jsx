@@ -8,7 +8,8 @@ export const SuppliersPage = () => {
     updateSupplier,
     deleteSupplier,
     openConfirm,
-    exportCSV
+    exportCSV,
+    showToast
   } = useInventory();
 
   const [searchTerm, setSearchTerm] = useState('');
@@ -50,16 +51,46 @@ export const SuppliersPage = () => {
     setModalMode('edit');
   };
 
+  const handleCloseModal = () => {
+    setModalMode(null);
+    setSelectedSupplier(null);
+    setFormData(initialForm);
+  };
+
   const handleSubmit = (e) => {
     e.preventDefault();
-    if (!formData.name || !formData.email || !formData.phone) return;
+    const cleanName = String(formData.name || '').trim();
+    const cleanEmail = String(formData.email || '').trim().toLowerCase();
+    const cleanPhone = String(formData.phone || '').trim();
+
+    if (!cleanName) {
+      showToast('Validation Error', 'Please enter a supplier or company name.', 'danger');
+      return;
+    }
+    if (!cleanEmail || !cleanEmail.includes('@')) {
+      showToast('Validation Error', 'Please enter a valid email address.', 'danger');
+      return;
+    }
+    if (!cleanPhone) {
+      showToast('Validation Error', 'Please provide a contact phone number.', 'danger');
+      return;
+    }
+
+    const payload = {
+      ...formData,
+      name: cleanName,
+      contactPerson: String(formData.contactPerson || '').trim(),
+      email: cleanEmail,
+      phone: cleanPhone,
+      address: String(formData.address || '').trim()
+    };
 
     if (modalMode === 'add') {
-      addSupplier(formData);
+      addSupplier(payload);
     } else if (modalMode === 'edit') {
-      updateSupplier(selectedSupplier.id, formData);
+      updateSupplier(selectedSupplier.id, payload);
     }
-    setModalMode(null);
+    handleCloseModal();
   };
 
   const handleDelete = (s) => {
@@ -119,17 +150,25 @@ export const SuppliersPage = () => {
       <div className="card-custom p-3 mb-4">
         <div className="row g-3 align-items-center">
           <div className="col-12 col-md-6">
-            <div className="input-group">
-              <span className="input-group-text bg-input border-secondary text-secondary">
-                <i className="bi bi-search"></i>
-              </span>
+            <div className="iq-search-bar">
+              <i className="bi bi-search iq-search-icon"></i>
               <input
                 type="text"
-                className="form-control bg-input border-secondary text-white"
+                className="iq-search-input"
                 placeholder="Search by supplier name, contact person, email or phone..."
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
               />
+              {searchTerm && (
+                <button
+                  type="button"
+                  className="iq-search-clear"
+                  onClick={() => setSearchTerm('')}
+                  title="Clear search"
+                >
+                  <i className="bi bi-x-lg"></i>
+                </button>
+              )}
             </div>
           </div>
           <div className="col-12 col-md-6 text-md-end text-secondary small">
@@ -227,7 +266,7 @@ export const SuppliersPage = () => {
 
       {/* Add / Edit Supplier Modal */}
       {modalMode && (
-        <div className="iq-modal-backdrop" onClick={() => setModalMode(null)}>
+        <div className="iq-modal-backdrop" onClick={handleCloseModal}>
           <div className="iq-modal-container p-4" onClick={e => e.stopPropagation()} style={{ maxWidth: 560 }}>
             <div className="d-flex justify-content-between align-items-center mb-3 pb-2 border-bottom border-secondary">
               <h5 className="modal-title text-white fw-bold">
@@ -236,7 +275,7 @@ export const SuppliersPage = () => {
               <button
                 type="button"
                 className="btn-close btn-close-white"
-                onClick={() => setModalMode(null)}
+                onClick={handleCloseModal}
               ></button>
             </div>
 
@@ -312,7 +351,7 @@ export const SuppliersPage = () => {
                 <button
                   type="button"
                   className="btn btn-secondary-custom"
-                  onClick={() => setModalMode(null)}
+                  onClick={handleCloseModal}
                 >
                   Cancel
                 </button>

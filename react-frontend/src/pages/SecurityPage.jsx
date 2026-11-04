@@ -2,17 +2,41 @@ import React, { useState } from 'react';
 import { useInventory } from '../context/InventoryContext';
 
 export const SecurityPage = () => {
-  const { sessions, revokeSession, auditLogs, openConfirm, showToast } = useInventory();
+  const {
+    sessions,
+    revokeSession,
+    revokeAllOtherSessions,
+    auditLogs,
+    openConfirm,
+    showToast,
+    logout
+  } = useInventory();
+
   const [twoFactorEnabled, setTwoFactorEnabled] = useState(false);
   const [logSearch, setLogSearch] = useState('');
 
   const handleRevoke = (s) => {
+    if (s.current) {
+      openConfirm({
+        title: 'Sign Out Current Device',
+        message: 'This will terminate your current session on this device and return you to the login screen. Do you want to proceed?',
+        confirmText: 'Sign Out',
+        confirmVariant: 'danger',
+        onConfirm: () => {
+          logout();
+        }
+      });
+      return;
+    }
+
     openConfirm({
       title: 'Revoke Device Session',
-      message: `Are you sure you want to disconnect "${s.device}" (${s.ip})? The user will be required to log in again.`,
+      message: `Are you sure you want to disconnect "${s.device}" (${s.ip})? This remote device session will be signed out immediately.`,
       confirmText: 'Revoke Session',
       confirmVariant: 'danger',
-      onConfirm: () => revokeSession(s.id)
+      onConfirm: () => {
+        revokeSession(s.id);
+      }
     });
   };
 
@@ -27,6 +51,8 @@ export const SecurityPage = () => {
     log.user.toLowerCase().includes(logSearch.toLowerCase()) ||
     (log.details && log.details.toLowerCase().includes(logSearch.toLowerCase()))
   );
+
+  const otherSessionsCount = sessions.filter(s => !s.current).length;
 
   return (
     <div className="security-page animate-fade-in">
@@ -83,8 +109,36 @@ export const SecurityPage = () => {
 
       {/* Active Device Sessions */}
       <div className="card-custom p-4 mb-4">
-        <h5 className="text-white fw-bold mb-1">Active Sessions</h5>
-        <small className="text-secondary d-block mb-3">Devices currently logged into this InventoryIQ tenant</small>
+        <div className="d-flex flex-wrap align-items-center justify-content-between gap-3 mb-3">
+          <div>
+            <h5 className="text-white fw-bold mb-1 d-flex align-items-center gap-2">
+              <span>Active Device Sessions</span>
+              <span className="badge badge-gold" style={{ fontSize: '0.75rem' }}>
+                {sessions.length}
+              </span>
+            </h5>
+            <small className="text-secondary">Devices and browsers currently logged into this InventoryIQ tenant</small>
+          </div>
+
+          {otherSessionsCount > 0 && (
+            <button
+              type="button"
+              className="btn btn-sm btn-outline-danger d-flex align-items-center gap-2"
+              onClick={() => {
+                openConfirm({
+                  title: 'Revoke All Other Sessions',
+                  message: `Are you sure you want to disconnect ${otherSessionsCount} other device(s)? Only this browser session will stay active.`,
+                  confirmText: 'Revoke All Others',
+                  confirmVariant: 'danger',
+                  onConfirm: () => revokeAllOtherSessions()
+                });
+              }}
+            >
+              <i className="bi bi-shield-x"></i>
+              <span>Revoke All Other Sessions ({otherSessionsCount})</span>
+            </button>
+          )}
+        </div>
 
         <div className="d-flex flex-column gap-3">
           {sessions.length === 0 ? (
@@ -95,31 +149,50 @@ export const SecurityPage = () => {
             sessions.map(s => (
               <div
                 key={s.id}
-                className="d-flex align-items-center justify-content-between p-3 rounded bg-secondary-dark flex-wrap gap-2"
+                className="d-flex align-items-center justify-content-between p-3 rounded bg-secondary-dark flex-wrap gap-2 border border-secondary border-opacity-25"
               >
                 <div className="d-flex align-items-center gap-3">
                   <div className="text-gold fs-3">
-                    <i className={`bi ${s.device.includes('iPhone') || s.device.includes('Mobile') ? 'bi-phone' : 'bi-laptop'}`}></i>
+                    <i className={`bi ${s.device && (s.device.includes('iPhone') || s.device.includes('Mobile') || s.device.includes('Android')) ? 'bi-phone' : 'bi-laptop'}`}></i>
                   </div>
                   <div>
                     <div className="d-flex align-items-center gap-2">
-                      <span className="text-white fw-medium">{s.device}</span>
-                      {s.current && <span className="badge badge-gold" style={{ fontSize: '0.7rem' }}>Current Device</span>}
+                      <span className="text-white fw-semibold">{s.device}</span>
+                      {s.current && (
+                        <span className="badge badge-gold" style={{ fontSize: '0.7rem' }}>
+                          <i className="bi bi-check-circle-fill me-1"></i>Current Device
+                        </span>
+                      )}
                     </div>
-                    <small className="text-secondary d-block">
-                      {s.ip} • {s.location} • {s.lastActive}
+                    <small className="text-secondary d-block mt-1">
+                      <span className="text-white-50">{s.ip}</span> • {s.location} • <span className="text-gold">{s.lastActive}</span>
                     </small>
                   </div>
                 </div>
-                {!s.current && (
-                  <button
-                    type="button"
-                    className="btn btn-sm btn-outline-danger"
-                    onClick={() => handleRevoke(s)}
-                  >
-                    Revoke Access
-                  </button>
-                )}
+
+                <div className="d-flex align-items-center gap-2">
+                  {s.current ? (
+                    <button
+                      type="button"
+                      className="btn btn-sm btn-outline-secondary d-flex align-items-center gap-1"
+                      onClick={() => handleRevoke(s)}
+                      title="End session on this device"
+                    >
+                      <i className="bi bi-box-arrow-right"></i>
+                      <span>Sign Out</span>
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      className="btn btn-sm btn-outline-danger d-flex align-items-center gap-1"
+                      onClick={() => handleRevoke(s)}
+                      title={`Disconnect ${s.device}`}
+                    >
+                      <i className="bi bi-x-circle"></i>
+                      <span>Revoke Access</span>
+                    </button>
+                  )}
+                </div>
               </div>
             ))
           )}
@@ -133,14 +206,25 @@ export const SecurityPage = () => {
             <h5 className="text-white fw-bold mb-1">Audit Trail & Security Logs</h5>
             <small className="text-secondary">Immutable ledger of administrative and sales actions</small>
           </div>
-          <div style={{ maxWidth: 260 }}>
+          <div style={{ maxWidth: 280 }} className="iq-search-bar">
+            <i className="bi bi-search iq-search-icon"></i>
             <input
               type="text"
-              className="form-control form-control-sm bg-input border-secondary text-white"
-              placeholder="Filter audit logs..."
+              className="form-control iq-search-input"
+              placeholder="Search audit trail..."
               value={logSearch}
               onChange={(e) => setLogSearch(e.target.value)}
             />
+            {logSearch && (
+              <button
+                type="button"
+                className="iq-search-clear"
+                onClick={() => setLogSearch('')}
+                title="Clear filter"
+              >
+                <i className="bi bi-x-lg"></i>
+              </button>
+            )}
           </div>
         </div>
 
@@ -161,7 +245,7 @@ export const SecurityPage = () => {
               {filteredLogs.length === 0 ? (
                 <tr>
                   <td colSpan="7" className="text-center py-4 text-secondary">
-                    No security audit logs recorded yet.
+                    No security audit logs match your filter.
                   </td>
                 </tr>
               ) : (
