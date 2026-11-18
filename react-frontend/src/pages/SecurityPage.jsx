@@ -890,24 +890,31 @@ export const SecurityPage = () => {
       {/* 2FA ENROLLMENT MODAL (QR CODE + VERIFY + RECOVERY CODES)              */}
       {/* -------------------------------------------------------------------- */}
       {enrollModal.isOpen && (
-        <div className="modal-backdrop show d-flex align-items-center justify-content-center p-3" style={{ zIndex: 1060 }}>
-          <div className="modal-dialog modal-dialog-centered w-100" style={{ maxWidth: 520 }}>
-            <div className="modal-content iq-modal-content bg-dark text-white border border-secondary">
-              <div className="modal-header iq-modal-header border-bottom border-secondary p-3">
-                <div className="d-flex align-items-center gap-2">
-                  <i className="bi bi-shield-check text-gold fs-5"></i>
-                  <h5 className="modal-title fw-bold text-white mb-0">
-                    {enrollModal.step === 'qr' ? 'Setup Authenticator App' : 'Save Recovery Backup Codes'}
-                  </h5>
-                </div>
-                <button
-                  type="button"
-                  className="btn-close btn-close-white"
-                  onClick={() => setEnrollModal(prev => ({ ...prev, isOpen: false }))}
-                ></button>
+        <div 
+          className="iq-modal-backdrop" 
+          style={{ zIndex: 1060, opacity: 1 }}
+          onClick={() => setEnrollModal(prev => ({ ...prev, isOpen: false }))}
+        >
+          <div 
+            className="iq-modal-container p-0" 
+            style={{ maxWidth: 520, opacity: 1, backgroundColor: '#1A1A1A' }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="d-flex align-items-center justify-content-between p-3 border-bottom border-secondary">
+              <div className="d-flex align-items-center gap-2">
+                <i className="bi bi-shield-check text-gold fs-5"></i>
+                <h5 className="modal-title fw-bold text-white mb-0">
+                  {enrollModal.step === 'qr' ? 'Setup Authenticator App' : 'Save Recovery Backup Codes'}
+                </h5>
               </div>
+              <button
+                type="button"
+                className="btn-close btn-close-white"
+                onClick={() => setEnrollModal(prev => ({ ...prev, isOpen: false }))}
+              ></button>
+            </div>
 
-              <div className="modal-body iq-modal-body p-4">
+            <div className="p-4" style={{ opacity: 1 }}>
                 {enrollModal.step === 'qr' ? (
                   <div>
                     <p className="text-secondary small mb-3">
@@ -1029,79 +1036,84 @@ export const SecurityPage = () => {
               </div>
             </div>
           </div>
-        </div>
-      )}
+        )}
 
       {/* -------------------------------------------------------------------- */}
       {/* INVITE TEAM MEMBER MODAL                                             */}
       {/* -------------------------------------------------------------------- */}
       {inviteModalOpen && (
-        <div className="modal-backdrop show d-flex align-items-center justify-content-center p-3" style={{ zIndex: 1060 }}>
-          <div className="modal-dialog modal-dialog-centered w-100" style={{ maxWidth: 460 }}>
-            <div className="modal-content iq-modal-content bg-dark text-white border border-secondary">
-              <div className="modal-header iq-modal-header border-bottom border-secondary p-3">
-                <h5 className="modal-title fw-bold text-white mb-0">Invite Team Member</h5>
-                <button
-                  type="button"
-                  className="btn-close btn-close-white"
-                  onClick={() => setInviteModalOpen(false)}
-                ></button>
+        <div 
+          className="iq-modal-backdrop" 
+          style={{ zIndex: 1060, opacity: 1 }}
+          onClick={() => setInviteModalOpen(false)}
+        >
+          <div 
+            className="iq-modal-container p-0" 
+            style={{ maxWidth: 460, opacity: 1, backgroundColor: '#1A1A1A' }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="d-flex align-items-center justify-content-between p-3 border-bottom border-secondary">
+              <h5 className="modal-title fw-bold text-white mb-0">Invite Team Member</h5>
+              <button
+                type="button"
+                className="btn-close btn-close-white"
+                onClick={() => setInviteModalOpen(false)}
+              ></button>
+            </div>
+
+            <form onSubmit={handleInviteSubmit} style={{ opacity: 1 }}>
+              <div className="p-4">
+                <div className="mb-3">
+                  <label className="form-label text-secondary small">Full Name</label>
+                  <input
+                    type="text"
+                    required
+                    className="form-control form-control-iq"
+                    placeholder="e.g. Rahul Sharma"
+                    value={inviteData.name}
+                    onChange={(e) => setInviteData({ ...inviteData, name: e.target.value })}
+                  />
+                </div>
+
+                <div className="mb-3">
+                  <label className="form-label text-secondary small">Email Address</label>
+                  <input
+                    type="email"
+                    required
+                    className="form-control form-control-iq"
+                    placeholder="name@company.com"
+                    value={inviteData.email}
+                    onChange={(e) => setInviteData({ ...inviteData, email: e.target.value })}
+                  />
+                </div>
+
+                <div className="mb-3">
+                  <label className="form-label text-secondary small">Role & Access Level</label>
+                  <select
+                    className="form-select bg-dark text-white border-secondary"
+                    value={inviteData.role}
+                    onChange={(e) => setInviteData({ ...inviteData, role: e.target.value })}
+                  >
+                    <option value="admin">Admin (Full administrative & catalog access)</option>
+                    <option value="manager">Manager (Inventory, Sales & Purchases)</option>
+                    <option value="staff">Staff (POS & Sales Creation only)</option>
+                  </select>
+                </div>
               </div>
 
-              <form onSubmit={handleInviteSubmit}>
-                <div className="modal-body iq-modal-body p-4">
-                  <div className="mb-3">
-                    <label className="form-label text-secondary small">Full Name</label>
-                    <input
-                      type="text"
-                      required
-                      className="form-control form-control-iq"
-                      placeholder="e.g. Rahul Sharma"
-                      value={inviteData.name}
-                      onChange={(e) => setInviteData({ ...inviteData, name: e.target.value })}
-                    />
-                  </div>
-
-                  <div className="mb-3">
-                    <label className="form-label text-secondary small">Email Address</label>
-                    <input
-                      type="email"
-                      required
-                      className="form-control form-control-iq"
-                      placeholder="name@company.com"
-                      value={inviteData.email}
-                      onChange={(e) => setInviteData({ ...inviteData, email: e.target.value })}
-                    />
-                  </div>
-
-                  <div className="mb-3">
-                    <label className="form-label text-secondary small">Role & Access Level</label>
-                    <select
-                      className="form-select bg-dark text-white border-secondary"
-                      value={inviteData.role}
-                      onChange={(e) => setInviteData({ ...inviteData, role: e.target.value })}
-                    >
-                      <option value="admin">Admin (Full administrative & catalog access)</option>
-                      <option value="manager">Manager (Inventory, Sales & Purchases)</option>
-                      <option value="staff">Staff (POS & Sales Creation only)</option>
-                    </select>
-                  </div>
-                </div>
-
-                <div className="modal-footer iq-modal-footer border-top border-secondary p-3">
-                  <button
-                    type="button"
-                    className="btn btn-secondary-custom btn-sm"
-                    onClick={() => setInviteModalOpen(false)}
-                  >
-                    Cancel
-                  </button>
-                  <button type="submit" className="btn-gold btn-sm fw-semibold">
-                    Send Invitation
-                  </button>
-                </div>
-              </form>
-            </div>
+              <div className="border-top border-secondary p-3 d-flex justify-content-end gap-2">
+                <button
+                  type="button"
+                  className="btn btn-secondary-custom btn-sm"
+                  onClick={() => setInviteModalOpen(false)}
+                >
+                  Cancel
+                </button>
+                <button type="submit" className="btn-gold btn-sm fw-semibold">
+                  Send Invitation
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}
@@ -1110,70 +1122,76 @@ export const SecurityPage = () => {
       {/* CLOUD MIGRATION MODAL (PHASE 14 DATA MIGRATION)                      */}
       {/* -------------------------------------------------------------------- */}
       {migrationModalOpen && (
-        <div className="modal-backdrop show d-flex align-items-center justify-content-center p-3" style={{ zIndex: 1060 }}>
-          <div className="modal-dialog modal-dialog-centered w-100" style={{ maxWidth: 520 }}>
-            <div className="modal-content iq-modal-content bg-dark text-white border border-secondary">
-              <div className="modal-header iq-modal-header border-bottom border-secondary p-3">
-                <div className="d-flex align-items-center gap-2">
-                  <i className="bi bi-cloud-arrow-up text-gold fs-5"></i>
-                  <h5 className="modal-title fw-bold text-white mb-0">Cloud Database Migration</h5>
+        <div 
+          className="iq-modal-backdrop" 
+          style={{ zIndex: 1060, opacity: 1 }}
+          onClick={() => setMigrationModalOpen(false)}
+        >
+          <div 
+            className="iq-modal-container p-0" 
+            style={{ maxWidth: 520, opacity: 1, backgroundColor: '#1A1A1A' }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="d-flex align-items-center justify-content-between p-3 border-bottom border-secondary">
+              <div className="d-flex align-items-center gap-2">
+                <i className="bi bi-cloud-arrow-up text-gold fs-5"></i>
+                <h5 className="modal-title fw-bold text-white mb-0">Cloud Database Migration</h5>
+              </div>
+              <button
+                type="button"
+                className="btn-close btn-close-white"
+                onClick={() => setMigrationModalOpen(false)}
+              ></button>
+            </div>
+
+            <div className="p-4" style={{ opacity: 1 }}>
+              <p className="text-secondary small mb-3">
+                Migrate your verified business data (products, sales, suppliers, customers) from local storage directly into Supabase PostgreSQL under your authenticated tenant organization.
+              </p>
+
+              {migrationStats && (
+                <div className="p-3 rounded bg-secondary-dark border border-secondary border-opacity-50 mb-3">
+                  <h6 className="text-white fw-bold mb-2 small text-uppercase">Records Eligible for Migration</h6>
+                  <div className="row g-2 text-secondary small">
+                    <div className="col-6">Products: <strong className="text-white">{migrationStats.productsCount}</strong></div>
+                    <div className="col-6">Categories: <strong className="text-white">{migrationStats.categoriesCount}</strong></div>
+                    <div className="col-6">Sales Orders: <strong className="text-white">{migrationStats.salesCount}</strong></div>
+                    <div className="col-6">Suppliers: <strong className="text-white">{migrationStats.suppliersCount}</strong></div>
+                    <div className="col-6">Customers: <strong className="text-white">{migrationStats.customersCount}</strong></div>
+                    <div className="col-6">Total Records: <strong className="text-gold">{migrationStats.totalRecords}</strong></div>
+                  </div>
                 </div>
-                <button
-                  type="button"
-                  className="btn-close btn-close-white"
-                  onClick={() => setMigrationModalOpen(false)}
-                ></button>
+              )}
+
+              <div className="p-2 rounded bg-black border border-secondary border-opacity-25 text-secondary small mb-3">
+                <i className="bi bi-shield-check text-gold me-1"></i>
+                Passwords, mock tokens, and fake sessions are excluded from migration.
               </div>
 
-              <div className="modal-body iq-modal-body p-4">
-                <p className="text-secondary small mb-3">
-                  Migrate your verified business data (products, sales, suppliers, customers) from local storage directly into Supabase PostgreSQL under your authenticated tenant organization.
-                </p>
-
-                {migrationStats && (
-                  <div className="p-3 rounded bg-secondary-dark border border-secondary border-opacity-50 mb-3">
-                    <h6 className="text-white fw-bold mb-2 small text-uppercase">Records Eligible for Migration</h6>
-                    <div className="row g-2 text-secondary small">
-                      <div className="col-6">Products: <strong className="text-white">{migrationStats.productsCount}</strong></div>
-                      <div className="col-6">Categories: <strong className="text-white">{migrationStats.categoriesCount}</strong></div>
-                      <div className="col-6">Sales Orders: <strong className="text-white">{migrationStats.salesCount}</strong></div>
-                      <div className="col-6">Suppliers: <strong className="text-white">{migrationStats.suppliersCount}</strong></div>
-                      <div className="col-6">Customers: <strong className="text-white">{migrationStats.customersCount}</strong></div>
-                      <div className="col-6">Total Records: <strong className="text-gold">{migrationStats.totalRecords}</strong></div>
-                    </div>
-                  </div>
-                )}
-
-                <div className="p-2 rounded bg-black border border-secondary border-opacity-25 text-secondary small mb-3">
-                  <i className="bi bi-shield-check text-gold me-1"></i>
-                  Passwords, mock tokens, and fake sessions are excluded from migration.
+              {migrationProgress && (
+                <div className="p-3 mb-3 rounded bg-secondary-dark border border-warning border-opacity-50 text-gold small">
+                  <i className="bi bi-arrow-repeat spin me-2"></i>
+                  {migrationProgress.message}
                 </div>
+              )}
 
-                {migrationProgress && (
-                  <div className="p-3 mb-3 rounded bg-secondary-dark border border-warning border-opacity-50 text-gold small">
-                    <i className="bi bi-arrow-repeat spin me-2"></i>
-                    {migrationProgress.message}
-                  </div>
-                )}
-
-                <div className="d-flex align-items-center justify-content-end gap-2">
-                  <button
-                    type="button"
-                    className="btn btn-secondary-custom btn-sm"
-                    onClick={() => setMigrationModalOpen(false)}
-                    disabled={migrationInProgress}
-                  >
-                    Close
-                  </button>
-                  <button
-                    type="button"
-                    className="btn-gold btn-sm fw-semibold"
-                    onClick={handleExecuteMigration}
-                    disabled={migrationInProgress}
-                  >
-                    {migrationInProgress ? 'Migrating Records...' : 'Start Migration'}
-                  </button>
-                </div>
+              <div className="d-flex align-items-center justify-content-end gap-2">
+                <button
+                  type="button"
+                  className="btn btn-secondary-custom btn-sm"
+                  onClick={() => setMigrationModalOpen(false)}
+                  disabled={migrationInProgress}
+                >
+                  Close
+                </button>
+                <button
+                  type="button"
+                  className="btn-gold btn-sm fw-semibold"
+                  onClick={handleExecuteMigration}
+                  disabled={migrationInProgress}
+                >
+                  {migrationInProgress ? 'Migrating Records...' : 'Start Migration'}
+                </button>
               </div>
             </div>
           </div>
