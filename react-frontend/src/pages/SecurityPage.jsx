@@ -56,32 +56,47 @@ export const SecurityPage = () => {
   // --------------------------------------------------------------------------
   // TEAM & ROLES (RBAC) STATE
   // --------------------------------------------------------------------------
-  const [teamMembers, setTeamMembers] = useState([
-    {
-      id: user?.id || 'usr-1',
-      name: user?.name || 'Anuj Gupta',
-      email: user?.email || 'admin@inventoryiq.com',
-      role: user?.role || 'owner',
-      status: 'Active',
-      joinedAt: 'Nov 2026'
-    },
-    {
-      id: 'usr-2',
-      name: 'Priya Sharma',
-      email: 'priya.finance@inventoryiq.com',
-      role: 'admin',
-      status: 'Active',
-      joinedAt: 'Nov 2026'
-    },
-    {
-      id: 'usr-3',
-      name: 'Rahul Verma',
-      email: 'rahul.store@inventoryiq.com',
-      role: 'staff',
-      status: 'Active',
-      joinedAt: 'Nov 2026'
-    }
-  ]);
+  const [teamMembers, setTeamMembers] = useState(() => {
+    try {
+      const stored = localStorage.getItem('iq_team_members');
+      if (stored) {
+        const parsed = JSON.parse(stored);
+        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+      }
+    } catch (e) {}
+    return [
+      {
+        id: user?.id || 'usr-1',
+        name: user?.name || 'Anuj Gupta',
+        email: user?.email || 'admin@inventoryiq.com',
+        role: user?.role || 'owner',
+        status: 'Active',
+        joinedAt: 'Nov 2026'
+      },
+      {
+        id: 'usr-2',
+        name: 'Priya Sharma',
+        email: 'priya.finance@inventoryiq.com',
+        role: 'admin',
+        status: 'Active',
+        joinedAt: 'Nov 2026'
+      },
+      {
+        id: 'usr-3',
+        name: 'Rahul Verma',
+        email: 'rahul.store@inventoryiq.com',
+        role: 'staff',
+        status: 'Active',
+        joinedAt: 'Nov 2026'
+      }
+    ];
+  });
+
+  useEffect(() => {
+    try {
+      localStorage.setItem('iq_team_members', JSON.stringify(teamMembers));
+    } catch (e) {}
+  }, [teamMembers]);
 
   const [inviteModalOpen, setInviteModalOpen] = useState(false);
   const [inviteData, setInviteData] = useState({ name: '', email: '', role: 'staff' });
@@ -352,6 +367,29 @@ export const SecurityPage = () => {
     );
     showToast('Role Updated', `Updated role to [${nextRole.toUpperCase()}].`, 'info');
     addAuditLog('Role Updated', `Changed role of member ${memberId} to ${nextRole}`);
+  };
+
+  const handleRemoveMember = (member) => {
+    if (!canManageMembers) {
+      showToast('Access Denied', 'Only Owners and Admins can remove organization team members.', 'danger');
+      return;
+    }
+    if (member.role === 'owner') {
+      showToast('Cannot Remove Owner', 'The organization primary owner cannot be removed.', 'warning');
+      return;
+    }
+
+    openConfirm({
+      title: 'Remove Team Member',
+      message: `Are you sure you want to remove ${member.name} (${member.email}) from this organization? Their permissions will be revoked immediately.`,
+      confirmText: 'Remove Member',
+      confirmVariant: 'danger',
+      onConfirm: () => {
+        setTeamMembers(prev => prev.filter(m => m.id !== member.id));
+        showToast('Member Removed', `${member.name} has been removed from the organization.`, 'warning');
+        addAuditLog('Member Removed', `Removed ${member.name} (${member.email}) with role [${member.role.toUpperCase()}] from organization`);
+      }
+    });
   };
 
   // --------------------------------------------------------------------------
@@ -744,18 +782,31 @@ export const SecurityPage = () => {
                   {canManageMembers && (
                     <td className="text-end">
                       {member.role !== 'owner' ? (
-                        <select
-                          className="form-select form-select-sm bg-dark text-white border-secondary d-inline-block"
-                          style={{ width: 'auto', fontSize: '0.8rem' }}
-                          value={member.role}
-                          onChange={(e) => handleChangeMemberRole(member.id, e.target.value)}
-                        >
-                          <option value="admin">Admin</option>
-                          <option value="manager">Manager</option>
-                          <option value="staff">Staff</option>
-                        </select>
+                        <div className="d-inline-flex align-items-center justify-content-end gap-2">
+                          <select
+                            className="form-select form-select-sm bg-dark text-white border-secondary d-inline-block"
+                            style={{ width: 'auto', fontSize: '0.8rem' }}
+                            value={member.role}
+                            onChange={(e) => handleChangeMemberRole(member.id, e.target.value)}
+                            title="Change member role"
+                          >
+                            <option value="admin">Admin</option>
+                            <option value="manager">Manager</option>
+                            <option value="staff">Staff</option>
+                          </select>
+                          <button
+                            type="button"
+                            className="btn btn-outline-danger btn-sm py-1 px-2 d-inline-flex align-items-center gap-1"
+                            style={{ fontSize: '0.78rem' }}
+                            onClick={() => handleRemoveMember(member)}
+                            title={`Remove ${member.name} from team`}
+                          >
+                            <i className="bi bi-trash3-fill"></i>
+                            <span className="d-none d-sm-inline">Remove</span>
+                          </button>
+                        </div>
                       ) : (
-                        <span className="text-muted small">Organization Owner</span>
+                        <span className="badge bg-secondary text-secondary-custom small">Organization Owner</span>
                       )}
                     </td>
                   )}

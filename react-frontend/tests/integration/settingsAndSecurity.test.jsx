@@ -60,5 +60,13 @@ describe('Integration — Settings, Security & Access Control', () => {
       });
       expect(screen.getByText(/Enter 6-Digit Verification Code/i)).toBeInTheDocument();
     });
+
+    it('renders remove member buttons for non-owner members', () => {
+      renderWithInventory(<SecurityPage />);
+      expect(screen.getByText(/Organization Team & Permissions/i)).toBeInTheDocument();
+      const removeButtons = screen.getAllByRole('button', { name: /Remove/i });
+      expect(removeButtons.length).toBeGreaterThan(0);
+      expect(removeButtons[0]).toBeInTheDocument();
+    });
   });
 });
