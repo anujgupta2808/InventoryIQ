@@ -217,7 +217,7 @@ export const InventoryPage = () => {
       p.status,
       p.supplierName
     ]);
-    exportCSV('Inventory_Products', rows, headers);
+    exportCSV('Inventory_Products', rows, headers, 'Inventory');
   };
 
   return (

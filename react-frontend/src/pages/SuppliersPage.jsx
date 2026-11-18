@@ -115,7 +115,7 @@ export const SuppliersPage = () => {
       s.status,
       s.totalPurchases
     ]);
-    exportCSV('Suppliers_Directory', rows, headers);
+    exportCSV('Suppliers_Directory', rows, headers, 'Suppliers');
   };
 
   return (

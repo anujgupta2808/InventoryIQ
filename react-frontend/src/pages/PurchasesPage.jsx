@@ -284,7 +284,7 @@ export const PurchasesPage = () => {
       p.amount,
       p.status
     ]);
-    exportCSV('Purchase_Orders', rows, headers);
+    exportCSV('Purchase_Orders', rows, headers, 'Purchase');
   };
 
   return (

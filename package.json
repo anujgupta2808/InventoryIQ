@@ -5,7 +5,14 @@
   "scripts": {
     "dev": "npm --prefix react-frontend run dev",
     "build": "npm --prefix react-frontend run build",
-    "preview": "npm --prefix react-frontend run preview"
+    "preview": "npm --prefix react-frontend run preview",
+    "test": "npm --prefix react-frontend run test",
+    "test:run": "npm --prefix react-frontend run test:run",
+    "test:watch": "npm --prefix react-frontend run test:watch",
+    "test:coverage": "npm --prefix react-frontend run test:coverage",
+    "test:e2e": "npm --prefix react-frontend run test:e2e",
+    "test:e2e:ui": "npm --prefix react-frontend run test:e2e:ui",
+    "test:security": "node test-security.mjs"
   },
   "keywords": [
     "inventory",

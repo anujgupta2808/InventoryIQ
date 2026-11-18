@@ -104,7 +104,7 @@ export const PartyDueTrackerPage = () => {
   const filteredLedgers = useMemo(() => {
     return personLedgers.filter(p => {
       const matchSearch = p.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                          p.phone.toLowerCase().includes(searchTerm.toLowerCase());
+        p.phone.toLowerCase().includes(searchTerm.toLowerCase());
       if (!matchSearch) return false;
       if (filterType === 'due_only') return p.totalDue > 0;
       if (filterType === 'settled_only') return p.totalDue <= 0;
@@ -178,7 +178,7 @@ export const PartyDueTrackerPage = () => {
       `${p.collectionRate}%`,
       p.status
     ]);
-    exportCSV('Party_Due_Tracker_Ledger', rows, headers);
+    exportCSV('Party_Due_Tracker_Ledger', rows, headers, 'Party Due Tracker');
   };
 
   return (
@@ -431,9 +431,8 @@ export const PartyDueTrackerPage = () => {
                     </td>
 
                     <td className="py-3 text-center">
-                      <span className={`badge ${
-                        person.totalDue <= 0 ? 'badge-success' : person.totalReceived > 0 ? 'badge-warning text-dark' : 'badge-danger'
-                      }`}>
+                      <span className={`badge ${person.totalDue <= 0 ? 'badge-success' : person.totalReceived > 0 ? 'badge-warning text-dark' : 'badge-danger'
+                        }`}>
                         {person.totalDue <= 0 ? 'Settled' : person.totalReceived > 0 ? 'Partial Due' : 'Full Due'}
                       </span>
                     </td>
@@ -690,9 +689,8 @@ export const PartyDueTrackerPage = () => {
                           ₹{invDue.toLocaleString('en-IN')}
                         </td>
                         <td className="text-center">
-                          <span className={`badge ${
-                            invStatus === 'Paid' ? 'badge-success' : invStatus === 'Partial' ? 'badge-warning text-dark' : 'badge-danger'
-                          }`}>
+                          <span className={`badge ${invStatus === 'Paid' ? 'badge-success' : invStatus === 'Partial' ? 'badge-warning text-dark' : 'badge-danger'
+                            }`}>
                             {invStatus}
                           </span>
                         </td>

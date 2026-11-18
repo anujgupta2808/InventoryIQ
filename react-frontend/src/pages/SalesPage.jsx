@@ -278,7 +278,7 @@ export const SalesPage = () => {
       `₹${getSaleDue(s)}`,
       getSaleStatus(s)
     ]);
-    exportCSV('Sales_Invoices_Register', rows, headers);
+    exportCSV('Sales_Invoices_Register', rows, headers, 'Sales');
   };
 
   return (

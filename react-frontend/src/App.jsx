@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 import { useInventory } from './context/InventoryContext';
 
 // Components
@@ -32,9 +32,24 @@ import { TermsOfServicePage } from './pages/Legal/TermsOfServicePage';
 import { PrivacyPolicyPage } from './pages/Legal/PrivacyPolicyPage';
 
 export function App() {
-  const { currentPage, isAuthenticated, sidebarCollapsed } = useInventory();
+  const { currentPage, setCurrentPage, isAuthenticated, sidebarCollapsed } = useInventory();
 
-  // Route to Legal Pages (Accessible publicly or from within app)
+  // Guard: Redirect authenticated users away from authentication views to the dashboard
+  useEffect(() => {
+    if (isAuthenticated && ['login', 'register', 'forgot-password', 'reset-password'].includes(currentPage)) {
+      setCurrentPage('dashboard');
+    }
+  }, [isAuthenticated, currentPage, setCurrentPage]);
+
+  // Guard: Prevent unauthenticated users from reaching protected dashboard pages
+  useEffect(() => {
+    const publicPages = ['login', 'register', 'forgot-password', 'reset-password', 'terms', 'privacy'];
+    if (!isAuthenticated && !publicPages.includes(currentPage)) {
+      setCurrentPage('login');
+    }
+  }, [isAuthenticated, currentPage, setCurrentPage]);
+
+  // Route to Legal Pages (Accessible publicly or from within authenticated app)
   if (currentPage === 'terms') {
     return <><TermsOfServicePage /><ToastContainer /></>;
   }
@@ -42,15 +57,15 @@ export function App() {
     return <><PrivacyPolicyPage /><ToastContainer /></>;
   }
 
-  // Route to Auth Pages
-  if (!isAuthenticated || ['login', 'register', 'forgot-password', 'reset-password'].includes(currentPage)) {
+  // Route to Auth Pages for unauthenticated visitors
+  if (!isAuthenticated) {
     if (currentPage === 'register') return <><RegisterPage /><ToastContainer /></>;
     if (currentPage === 'forgot-password') return <><ForgotPasswordPage /><ToastContainer /></>;
     if (currentPage === 'reset-password') return <><ResetPasswordPage /><ToastContainer /></>;
     return <><LoginPage /><ToastContainer /></>;
   }
 
-  // Main Dashboard View Router
+  // Main Dashboard View Router for authenticated users
   const renderCurrentPage = () => {
     switch (currentPage) {
       case 'dashboard':

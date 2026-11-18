@@ -27,5 +27,12 @@ pnpm-debug.log*
 .idea/
 .DS_Store
 Thumbs.db
-*.zip
+
+# Test artifacts and coverage
+coverage/
+react-frontend/coverage/
+playwright-report/
+react-frontend/playwright-report/
+test-results/
+react-frontend/test-results/
 
