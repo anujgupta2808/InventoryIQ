@@ -16,14 +16,15 @@ test.describe('Workflow A: Authentication Flow & Route Protection', () => {
     await expect(page.getByText(/Sign in to your InventoryIQ workspace/i)).toBeVisible();
     await expect(page.getByLabel(/^Email Address$/i)).toBeVisible();
     await expect(page.getByLabel(/^Password$/i)).toBeVisible();
-    await expect(page.getByRole('button', { name: /Auto-Fill Demo Account/i })).toBeVisible();
+    await expect(page.getByRole('button', { name: /Auto-Fill Demo Account/i })).not.toBeVisible();
   });
 
-  test('populates credentials using Auto-Fill and authenticates successfully', async ({ page }) => {
+  test('populates credentials and authenticates successfully', async ({ page }) => {
     await page.goto('/');
     
-    // Auto fill credentials
-    await page.getByRole('button', { name: /Auto-Fill Demo Account/i }).click();
+    // Fill credentials
+    await page.getByLabel(/^Email Address$/i).fill('admin@inventoryiq.com');
+    await page.getByLabel(/^Password$/i).fill('admin');
     await expect(page.getByLabel(/^Email Address$/i)).toHaveValue('admin@inventoryiq.com');
     await expect(page.getByLabel(/^Password$/i)).toHaveValue('admin');
 
@@ -39,7 +40,8 @@ test.describe('Workflow A: Authentication Flow & Route Protection', () => {
     await page.goto('/');
 
     // Sign in
-    await page.getByRole('button', { name: /Auto-Fill Demo Account/i }).click();
+    await page.getByLabel(/^Email Address$/i).fill('admin@inventoryiq.com');
+    await page.getByLabel(/^Password$/i).fill('admin');
     await page.getByRole('button', { name: /Sign In/i }).click();
     await expect(page.getByRole('heading', { level: 1, name: /Dashboard/i })).toBeVisible();
 

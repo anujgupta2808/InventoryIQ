@@ -114,13 +114,6 @@ export const LoginPage = () => {
     }
   };
 
-  const handleAutoFillDemo = () => {
-    setEmail('admin@inventoryiq.com');
-    setPassword('admin');
-    setErrorMessage('');
-    showToast('Demo Credentials Filled', 'Demo admin account populated (admin@inventoryiq.com / admin). Click Sign In to proceed.', 'info');
-  };
-
   const handleSocialLogin = (provider) => {
     const msg = 'Social authentication is available in a future release.';
     setErrorMessage('');
@@ -236,31 +229,6 @@ export const LoginPage = () => {
               <div className="auth-header">
                 <h3 className="auth-title">Welcome Back!</h3>
                 <p className="auth-subtitle">Sign in to your InventoryIQ workspace</p>
-              </div>
-
-              {/* Demo Credentials Auto-Fill Pill */}
-              <div className="p-3 mb-3 rounded bg-secondary-dark border border-secondary border-opacity-50">
-                <div className="d-flex align-items-center justify-content-between flex-wrap gap-2 mb-1">
-                  <div className="d-flex align-items-center gap-2">
-                    <span className="badge badge-gold" style={{ fontSize: '0.7rem' }}>
-                      <i className="bi bi-stars me-1"></i>Demo Account
-                    </span>
-                    <span className="text-white small fw-medium">admin@inventoryiq.com</span>
-                  </div>
-                  <button
-                    type="button"
-                    className="btn btn-sm btn-outline-warning text-gold py-0 px-2 fw-semibold"
-                    onClick={handleAutoFillDemo}
-                    style={{ fontSize: '0.75rem' }}
-                    title="Populate demo admin credentials"
-                  >
-                    Auto-Fill Demo Account
-                  </button>
-                </div>
-                <p className="text-secondary mb-0" style={{ fontSize: '0.72rem' }}>
-                  <i className="bi bi-info-circle me-1 text-gold"></i>
-                  Demonstration credentials. Connect Supabase in production for real cloud auth & RLS.
-                </p>
               </div>
 
               {/* Inline Error Banner */}

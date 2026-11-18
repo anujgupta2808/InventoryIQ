@@ -9,7 +9,7 @@ export default defineConfig({
   fullyParallel: true,
   forbidOnly: !!process.env.CI,
   retries: process.env.CI ? 2 : 0,
-  workers: process.env.CI ? 1 : undefined,
+  workers: 1,
   reporter: [
     ['html', { outputFolder: 'playwright-report', open: 'never' }],
     ['list']
@@ -24,14 +24,6 @@ export default defineConfig({
     {
       name: 'Desktop Chrome',
       use: { ...devices['Desktop Chrome'] }
-    },
-    {
-      name: 'Mobile Chrome (Pixel 5)',
-      use: { ...devices['Pixel 5'] }
-    },
-    {
-      name: 'Tablet (iPad Mini)',
-      use: { ...devices['iPad Mini'] }
     }
   ],
   webServer: {

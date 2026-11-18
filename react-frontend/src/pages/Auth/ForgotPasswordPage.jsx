@@ -60,11 +60,6 @@ export const ForgotPasswordPage = () => {
     }, 200);
   };
 
-  const handleFillDemo = () => {
-    setEmail('admin@inventoryiq.com');
-    setErrorMessage('');
-  };
-
   return (
     <div className="auth-page-wrapper">
       <div className="iq-card p-4 p-md-5" style={{ maxWidth: 490, width: '100%', borderColor: 'var(--border-gold)' }}>
@@ -72,20 +67,7 @@ export const ForgotPasswordPage = () => {
           <img src="./logo.svg" alt="InventoryIQ" style={{ width: 44, height: 44 }} className="mx-auto mb-3" />
           <h3 className="auth-title">Forgot Password?</h3>
           <p className="auth-subtitle">
-            Enter your registered demo email to simulate the password recovery workflow.
-          </p>
-        </div>
-
-        {/* Demo Notice Banner */}
-        <div className="p-3 mb-4 rounded bg-secondary-dark border border-secondary border-opacity-50">
-          <div className="d-flex align-items-center gap-2 mb-1">
-            <span className="badge badge-gold" style={{ fontSize: '0.7rem' }}>
-              <i className="bi bi-shield-lock me-1"></i>Demo Notice
-            </span>
-            <span className="text-white small fw-medium">Frontend Simulation</span>
-          </div>
-          <p className="text-secondary mb-0" style={{ fontSize: '0.72rem' }}>
-            Only accounts registered in the browser demo store can be recovered. Demo admin: <span className="text-gold">admin@inventoryiq.com</span>
+            Enter your registered email address to receive password reset instructions.
           </p>
         </div>
 
@@ -190,12 +172,12 @@ export const ForgotPasswordPage = () => {
               {loading ? (
                 <>
                   <span className="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span>
-                  <span>Verifying Demo Account...</span>
+                  <span>Verifying Account...</span>
                 </>
               ) : (
                 <>
                   <i className="bi bi-send-check"></i>
-                  <span>Send Simulated Reset Link</span>
+                  <span>Send Reset Link</span>
                 </>
               )}
             </button>

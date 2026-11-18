@@ -11,7 +11,8 @@ test.describe('Workflow B: Inventory Management Catalog & CRUD', () => {
     await page.reload();
 
     // Authenticate
-    await page.getByRole('button', { name: /Auto-Fill Demo Account/i }).click();
+    await page.getByLabel(/^Email Address$/i).fill('admin@inventoryiq.com');
+    await page.getByLabel(/^Password$/i).fill('admin');
     await page.getByRole('button', { name: /Sign In/i }).click();
     await expect(page.getByRole('heading', { level: 1, name: /Dashboard/i })).toBeVisible();
 

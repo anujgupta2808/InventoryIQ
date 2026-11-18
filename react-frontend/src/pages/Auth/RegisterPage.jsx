@@ -152,7 +152,7 @@ export const RegisterPage = () => {
 
           <div className="d-flex align-items-center justify-content-between text-muted" style={{ fontSize: '0.75rem' }}>
             <span><i className="bi bi-shield-check text-gold me-1"></i> Web Crypto PBKDF2 Hashing</span>
-            <span>v2.0 Commercial Demo</span>
+            <span>v2.1 Enterprise</span>
           </div>
         </div>
 
@@ -161,19 +161,6 @@ export const RegisterPage = () => {
           <div className="auth-header">
             <h3 className="auth-title">Create Account</h3>
             <p className="auth-subtitle">Register your organization & setup commercial catalog</p>
-          </div>
-
-          {/* Demo Architecture Notice */}
-          <div className="p-3 mb-3 rounded bg-secondary-dark border border-secondary border-opacity-50">
-            <div className="d-flex align-items-center gap-2 mb-1">
-              <span className="badge badge-gold" style={{ fontSize: '0.7rem' }}>
-                <i className="bi bi-shield-lock me-1"></i>Demo Security
-              </span>
-              <span className="text-white small fw-medium">Frontend Demonstration</span>
-            </div>
-            <p className="text-secondary mb-0" style={{ fontSize: '0.72rem' }}>
-              Credentials are encrypted using browser Web Crypto PBKDF2 with unique salts. Client-side storage is not production-secure.
-            </p>
           </div>
 
           {/* Inline Error Banner */}

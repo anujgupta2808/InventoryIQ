@@ -13,21 +13,22 @@ describe('Integration — Authentication Workflow & Route Guarding', () => {
     authService.logout();
   });
 
-  it('renders login screen with demo credentials banner and inputs', () => {
+  it('renders login screen with authentic inputs and clean UI', () => {
     renderWithInventory(<LoginPage />);
     expect(screen.getByText(/Welcome Back!/i)).toBeInTheDocument();
     expect(screen.getByLabelText(/^Email Address$/i)).toBeInTheDocument();
     expect(screen.getByLabelText(/^Password$/i)).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /Auto-Fill Demo Account/i })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Auto-Fill Demo Account/i })).not.toBeInTheDocument();
   });
 
-  it('populates credentials when Auto-Fill Demo Account button is clicked', () => {
+  it('allows manual credential input for authentication', () => {
     renderWithInventory(<LoginPage />);
-    const autoFillBtn = screen.getByRole('button', { name: /Auto-Fill Demo Account/i });
-    fireEvent.click(autoFillBtn);
-
     const emailInput = screen.getByLabelText(/^Email Address$/i);
     const passwordInput = screen.getByLabelText(/^Password$/i);
+
+    fireEvent.change(emailInput, { target: { value: 'admin@inventoryiq.com' } });
+    fireEvent.change(passwordInput, { target: { value: 'admin' } });
+
     expect(emailInput.value).toBe('admin@inventoryiq.com');
     expect(passwordInput.value).toBe('admin');
   });
