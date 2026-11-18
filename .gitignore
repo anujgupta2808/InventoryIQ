@@ -7,7 +7,9 @@ react-frontend/node_modules/
 # Production build artifacts
 dist/
 build/
+.vite/
 react-frontend/dist/
+react-frontend/.vite/
 
 # Environment and local configurations
 .env
