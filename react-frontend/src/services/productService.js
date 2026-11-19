@@ -5,6 +5,9 @@
 
 import { storageService } from './storageService.js';
 import { validateProduct } from '../utils/validators.js';
+import { roundTo } from '../utils/calculations.js';
+import { permissionService } from './permissionService.js';
+import { productRepository } from '../repositories/productRepository.js';
 
 export class ProductService {
   constructor() {
@@ -37,36 +40,42 @@ export class ProductService {
   }
 
   generateId(existingProducts = []) {
-    if (existingProducts.length > 0 && existingProducts.every(p => typeof p.id === 'number' && Number.isInteger(p.id))) {
-      return Math.max(...existingProducts.map(p => Number(p.id) || 0)) + 1;
+    const numericIds = existingProducts
+      .map(p => Number(p.id))
+      .filter(id => !isNaN(id) && Number.isInteger(id) && id > 0);
+    if (numericIds.length > 0 && numericIds.length === existingProducts.length) {
+      return Math.max(...numericIds) + 1;
     }
     return (typeof crypto !== 'undefined' && crypto.randomUUID)
       ? crypto.randomUUID()
-      : (existingProducts.length > 0 ? Math.max(...existingProducts.map(p => Number(p.id) || 0)) + 1 : 1);
+      : 'PROD-' + Date.now().toString(36);
   }
 
   calculateStatus(stock, minStock) {
-    const s = Math.max(0, parseInt(stock, 10) || 0);
-    const ms = Math.max(0, parseInt(minStock, 10) || 0);
+    const s = Math.max(0, Number(stock) || 0);
+    const ms = Math.max(0, Number(minStock) || 0);
     if (s <= 0) return 'Out of Stock';
     if (s <= ms) return 'Low Stock';
     return 'In Stock';
   }
 
-  addProduct(productData) {
+  addProduct(productData, userRole = 'owner', shopId = null) {
+    permissionService.assertPermission(userRole, 'inventory.create', 'create products');
+
     const products = this.getAll();
     const validation = validateProduct(productData, products);
     if (!validation.isValid) {
       return { success: false, errors: validation.errors };
     }
 
-    const stock = Math.max(0, parseInt(productData.stock, 10) || 0);
-    const minStock = Math.max(0, parseInt(productData.minStock, 10) || 0);
-    const price = Math.max(0, parseFloat(productData.price) || 0);
-    const costPrice = Math.max(0, parseFloat(productData.costPrice) || 0);
+    // Fractional quantity support (e.g. 1.5 kg, 2.75 meter)
+    const stock = Math.max(0, roundTo(Number(productData.stock || 0), 3));
+    const minStock = Math.max(0, roundTo(Number(productData.minStock || 0), 3));
+    const price = Math.max(0, roundTo(Number(productData.price || 0), 2));
+    const costPrice = Math.max(0, roundTo(Number(productData.costPrice || 0), 2));
     const status = this.calculateStatus(stock, minStock);
 
-    const newId = productData.id || this.generateId(products);
+    const newId = productData.id ? String(productData.id) : this.generateId(products);
     const newSku = String(productData.sku || this.generateSKU()).trim();
 
     const newProduct = {
@@ -78,36 +87,41 @@ export class ProductService {
       minStock,
       price,
       costPrice,
-      unit: productData.unit || 'Piece',
+      unit: productData.unit || 'pcs',
       barcode: productData.barcode || '',
       image: productData.image || '',
-      supplierId: productData.supplierId ? (Number(productData.supplierId) || productData.supplierId) : null,
-      supplierName: productData.supplierName || 'Primary Supplier',
+      supplierId: productData.supplierId ? String(productData.supplierId) : null,
+      supplierName: productData.supplierName || '',
       status,
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString()
     };
 
     const inserted = storageService.insertItem(this.collectionName, newProduct);
+    if (shopId) {
+      productRepository.save(shopId, newProduct).catch(err => console.warn('Async IndexedDB write notice:', err));
+    }
     return { success: true, product: inserted };
   }
 
-  updateProduct(id, productData) {
+  updateProduct(id, productData, userRole = 'owner', shopId = null) {
+    permissionService.assertPermission(userRole, 'inventory.update', 'modify products');
+
     const existing = this.getById(id);
     if (!existing) {
       return { success: false, errors: ['Product not found.'] };
     }
 
     const products = this.getAll();
-    const validation = validateProduct({ ...existing, ...productData, id: Number(id) }, products);
+    const validation = validateProduct({ ...existing, ...productData, id }, products);
     if (!validation.isValid) {
       return { success: false, errors: validation.errors };
     }
 
-    const stock = productData.stock !== undefined ? Math.max(0, parseInt(productData.stock, 10) || 0) : existing.stock;
-    const minStock = productData.minStock !== undefined ? Math.max(0, parseInt(productData.minStock, 10) || 0) : existing.minStock;
-    const price = productData.price !== undefined ? Math.max(0, parseFloat(productData.price) || 0) : existing.price;
-    const costPrice = productData.costPrice !== undefined ? Math.max(0, parseFloat(productData.costPrice) || 0) : existing.costPrice;
+    const stock = productData.stock !== undefined ? Math.max(0, roundTo(Number(productData.stock), 3)) : existing.stock;
+    const minStock = productData.minStock !== undefined ? Math.max(0, roundTo(Number(productData.minStock), 3)) : existing.minStock;
+    const price = productData.price !== undefined ? Math.max(0, roundTo(Number(productData.price), 2)) : existing.price;
+    const costPrice = productData.costPrice !== undefined ? Math.max(0, roundTo(Number(productData.costPrice), 2)) : existing.costPrice;
     const status = this.calculateStatus(stock, minStock);
 
     const updates = {
@@ -121,18 +135,26 @@ export class ProductService {
       unit: productData.unit || existing.unit,
       barcode: productData.barcode !== undefined ? productData.barcode : existing.barcode,
       image: productData.image !== undefined ? productData.image : existing.image,
-      supplierId: productData.supplierId !== undefined ? (productData.supplierId ? Number(productData.supplierId) : null) : existing.supplierId,
-      supplierName: productData.supplierName || existing.supplierName,
+      supplierId: productData.supplierId !== undefined ? (productData.supplierId ? String(productData.supplierId) : null) : existing.supplierId,
+      supplierName: productData.supplierName !== undefined ? productData.supplierName : existing.supplierName,
       status,
       updatedAt: new Date().toISOString()
     };
 
     const updated = storageService.updateItem(this.collectionName, id, updates);
+    if (shopId && updated) {
+      productRepository.save(shopId, updated).catch(err => console.warn('Async IndexedDB update notice:', err));
+    }
     return { success: true, product: updated };
   }
 
-  deleteProduct(id) {
+  deleteProduct(id, userRole = 'owner', shopId = null) {
+    permissionService.assertPermission(userRole, 'inventory.delete', 'delete catalog products');
+
     const removed = storageService.removeItem(this.collectionName, id);
+    if (shopId && removed) {
+      productRepository.delete(shopId, id).catch(err => console.warn('Async IndexedDB delete notice:', err));
+    }
     return { success: removed };
   }
 

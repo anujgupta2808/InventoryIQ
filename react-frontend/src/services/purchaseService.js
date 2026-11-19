@@ -44,10 +44,10 @@ export class PurchaseService {
     if (poData.newSupplierData && poData.newSupplierData.name) {
       const added = supplierService.addSupplier({
         name: poData.newSupplierData.name,
-        contactPerson: poData.newSupplierData.contactPerson || 'Vendor Rep',
-        email: poData.newSupplierData.email || 'orders@supplier.com',
-        phone: poData.newSupplierData.phone || '+91 98765 00000',
-        address: poData.newSupplierData.address || 'Vendor Address',
+        contactPerson: poData.newSupplierData.contactPerson || '',
+        email: poData.newSupplierData.email || '',
+        phone: poData.newSupplierData.phone || '',
+        address: poData.newSupplierData.address || '',
         status: 'Active',
         totalPurchases: `₹${Number(poData.amount).toLocaleString('en-IN')}`
       });

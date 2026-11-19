@@ -24,6 +24,10 @@ import { inventoryService } from '../services/inventoryService';
 import { analyticsService } from '../services/analyticsService';
 import { exportService } from '../services/exportService';
 import { importService } from '../services/importService';
+import { backupService } from '../services/backupService';
+import { syncChannel } from '../services/syncChannel';
+import { checkDatabaseHealth } from '../database/db';
+import { licenseService } from '../services/licenseService';
 
 const InventoryContext = createContext();
 
@@ -47,6 +51,11 @@ export const InventoryProvider = ({ children }) => {
   const [resetTargetEmail, setResetTargetEmail] = useState('');
   const [demoResetSession, setDemoResetSession] = useState(null);
   const [sessions, setSessions] = useState(() => []);
+  const [isProcessingSale, setIsProcessingSale] = useState(false);
+  const [isNewDevice, setIsNewDevice] = useState(false);
+
+  const currentShopId = user?.organizationId || user?.shopId || 'default_shop';
+  const licenseStatus = licenseService.getLicenseStatus(user);
 
   // Fetch real sessions on mount and when authenticated user changes
   useEffect(() => {
@@ -64,7 +73,7 @@ export const InventoryProvider = ({ children }) => {
   }, [user]);
 
   // --------------------------------------------------------------------------
-  // CENTRAL DATA COLLECTIONS (Loaded via storageService)
+  // CENTRAL DATA COLLECTIONS (IndexedDB Backed)
   // --------------------------------------------------------------------------
   const [categories, setCategories] = useState(() => storageService.getCollection('CATEGORIES', []));
   const [products, setProducts] = useState(() => storageService.getCollection('PRODUCTS', INITIAL_PRODUCTS));
@@ -74,34 +83,54 @@ export const InventoryProvider = ({ children }) => {
   const [customers, setCustomers] = useState(() => storageService.getCollection('CUSTOMERS', []));
   const [auditLogs, setAuditLogs] = useState(() => storageService.getCollection('AUDIT_LOGS', INITIAL_AUDIT_LOGS));
 
-  // Sync collections to storage when state changes
+  // Initialize IndexedDB for authenticated shop & check new device status
   useEffect(() => {
-    storageService.setCollection('CATEGORIES', categories);
-  }, [categories]);
+    let isMounted = true;
+    const shopId = user?.organizationId || user?.shopId || 'default_shop';
 
-  useEffect(() => {
-    storageService.setCollection('PRODUCTS', products);
-  }, [products]);
+    storageService.initShop(shopId).then(() => {
+      if (isMounted) {
+        const loadedProds = productService.getAll();
+        const loadedSales = salesService.getAll();
+        const loadedPurchases = purchaseService.getAll();
+        const loadedSuppliers = supplierService.getAll();
+        const loadedCustomers = customerService.getAll();
+        const loadedCats = storageService.getCollection('CATEGORIES', []);
+        const loadedAudit = storageService.getCollection('AUDIT_LOGS', []);
 
-  useEffect(() => {
-    storageService.setCollection('SALES', sales);
-  }, [sales]);
+        setProducts(loadedProds);
+        setSales(loadedSales);
+        setPurchases(loadedPurchases);
+        setSuppliers(loadedSuppliers);
+        setCustomers(loadedCustomers);
+        setCategories(loadedCats);
+        setAuditLogs(loadedAudit);
 
-  useEffect(() => {
-    storageService.setCollection('PURCHASES', purchases);
-  }, [purchases]);
+        // Detect fresh new device (Section 30)
+        const lastBackup = backupService.getLastBackupInfo(shopId);
+        if (loadedProds.length === 0 && loadedSales.length === 0 && !lastBackup && isAuthenticated) {
+          setIsNewDevice(true);
+        }
+      }
+    });
 
-  useEffect(() => {
-    storageService.setCollection('SUPPLIERS', suppliers);
-  }, [suppliers]);
+    return () => { isMounted = false; };
+  }, [user, isAuthenticated]);
 
+  // Multi-tab synchronization via BroadcastChannel (Section 38)
   useEffect(() => {
-    storageService.setCollection('CUSTOMERS', customers);
-  }, [customers]);
-
-  useEffect(() => {
-    storageService.setCollection('AUDIT_LOGS', auditLogs);
-  }, [auditLogs]);
+    const unsubscribe = syncChannel.subscribe((msg) => {
+      if (!msg) return;
+      setProducts(productService.getAll());
+      setSales(salesService.getAll());
+      setPurchases(purchaseService.getAll());
+      setSuppliers(supplierService.getAll());
+      setCustomers(customerService.getAll());
+      setCategories(storageService.getCollection('CATEGORIES', []));
+      setAuditLogs(storageService.getCollection('AUDIT_LOGS', []));
+    });
+    return () => unsubscribe();
+  }, []);
 
   // --------------------------------------------------------------------------
   // UI & NAVIGATION SHELL STATE
@@ -454,24 +483,56 @@ export const InventoryProvider = ({ children }) => {
   // SALES & PAYMENT OPERATIONS (salesService & paymentService)
   // --------------------------------------------------------------------------
   const createSale = (saleData) => {
-    const res = salesService.createSale(saleData, user?.name || 'Admin');
-    if (!res.success) {
-      showToast('Sale Failed', (res.errors || [res.message]).join(' '), 'danger');
+    if (isProcessingSale) {
+      showToast('Processing', 'A sale transaction is already processing. Please wait...', 'warning');
       return null;
     }
 
-    // Refresh state from storage
-    setProducts(productService.getAll());
+    setIsProcessingSale(true);
+    try {
+      const res = salesService.createSale(saleData, user?.name || 'Admin', currentShopId);
+      if (!res.success) {
+        showToast('Sale Failed', (res.errors || [res.message]).join(' '), 'danger');
+        return null;
+      }
+
+      // Refresh state from storage
+      setProducts(productService.getAll());
+      setSales(salesService.getAll());
+      setCustomers(customerService.getAll());
+
+      const { sale } = res;
+      addAuditLog(
+        'Sale Created',
+        `Sale #${sale.id} (${sale.customerName}) – Billed ₹${Number(sale.amount).toLocaleString('en-IN')}, Received ₹${Number(sale.paidAmount).toLocaleString('en-IN')}${Number(sale.dueAmount) > 0 ? `, Due ₹${Number(sale.dueAmount).toLocaleString('en-IN')}` : ''}`
+      );
+      showToast('Sale Completed', `Invoice #${sale.id} generated. Status: ${sale.status}.`);
+
+      // Broadcast to other open tabs
+      syncChannel.broadcast('SALE_COMPLETED', { saleId: sale.id });
+
+      return sale;
+    } finally {
+      setIsProcessingSale(false);
+    }
+  };
+
+  const cancelSale = (saleId, reason = 'Invoice Cancelled') => {
+    const res = salesService.cancelSale(saleId, reason, user?.name || 'Admin');
+    if (!res.success) {
+      showToast('Cancellation Error', res.message, 'danger');
+      return res;
+    }
+
     setSales(salesService.getAll());
+    setProducts(productService.getAll());
     setCustomers(customerService.getAll());
 
-    const { sale } = res;
-    addAuditLog(
-      'Sale Created',
-      `Sale #${sale.id} (${sale.customerName}) – Billed ₹${Number(sale.amount).toLocaleString('en-IN')}, Received ₹${Number(sale.paidAmount).toLocaleString('en-IN')}${Number(sale.dueAmount) > 0 ? `, Due ₹${Number(sale.dueAmount).toLocaleString('en-IN')}` : ''}`
-    );
-    showToast('Sale Completed', `Invoice #${sale.id} generated. Status: ${sale.status}.`);
-    return sale;
+    addAuditLog('Sale Cancelled', `Cancelled invoice #${saleId} (Reason: ${reason})`);
+    showToast('Sale Cancelled', `Invoice #${saleId} cancelled and inventory restored.`, 'warning');
+
+    syncChannel.broadcast('SALE_CANCELLED', { saleId });
+    return res;
   };
 
   const recordPayment = ({ saleId, customerName, paymentAmount, paymentMethod = 'UPI', note = '' }) => {
@@ -517,6 +578,8 @@ export const InventoryProvider = ({ children }) => {
     const { purchase } = res;
     addAuditLog('Purchase Order Created', `Order #${purchase.id} placed with ${purchase.supplierName}`);
     showToast('Purchase Completed', `PO #${purchase.id} recorded, contact added/updated, and inventory stocked.`);
+
+    syncChannel.broadcast('PURCHASE_COMPLETED', { poId: purchase.id });
     return purchase;
   };
 
@@ -557,7 +620,7 @@ export const InventoryProvider = ({ children }) => {
   };
 
   // --------------------------------------------------------------------------
-  // EXPORT & RESTORE OPERATIONS (exportService & importService)
+  // LOCAL-FIRST BACKUP, VERIFICATION & RESTORE (backupService)
   // --------------------------------------------------------------------------
   const exportCSV = (filename, dataRows, headerNames, customTitle = null) => {
     const res = exportService.downloadCSV(filename, headerNames, dataRows, customTitle);
@@ -568,7 +631,73 @@ export const InventoryProvider = ({ children }) => {
     showToast('Export Complete', `${filename}.csv has been downloaded.`);
   };
 
+  const exportBackup = async () => {
+    try {
+      const payload = await backupService.generateBackup(currentShopId);
+      const fileInfo = backupService.downloadBackupFile(payload);
+      addAuditLog('Backup Exported', `Generated full JSON backup for shop ${currentShopId}`);
+      showToast('Backup Created', `Backup file ${fileInfo.filename} downloaded and verified.`, 'success');
+      return { success: true, payload, fileInfo };
+    } catch (err) {
+      showToast('Backup Failed', err.message, 'danger');
+      return { success: false, error: err.message };
+    }
+  };
+
+  const validateBackup = async (fileContent) => {
+    return backupService.validateBackupFile(fileContent, currentShopId);
+  };
+
+  const restoreBackup = async (backupPayload, options = { replace: true }) => {
+    try {
+      const res = await backupService.restoreBackup(currentShopId, backupPayload, options);
+      // Re-hydrate local collections
+      await storageService.initShop(currentShopId);
+      setProducts(productService.getAll());
+      setSales(salesService.getAll());
+      setPurchases(purchaseService.getAll());
+      setSuppliers(supplierService.getAll());
+      setCustomers(customerService.getAll());
+      setCategories(storageService.getCollection('CATEGORIES', []));
+      setAuditLogs(storageService.getCollection('AUDIT_LOGS', []));
+
+      addAuditLog('Backup Restored', `Restored database from archive (${backupPayload.exportedAt || 'backup'})`);
+      showToast('Backup Restored', 'Business data restored into local IndexedDB successfully.', 'success');
+      return res;
+    } catch (err) {
+      showToast('Restore Failed', err.message, 'danger');
+      return { success: false, error: err.message };
+    }
+  };
+
+  const clearLocalData = async (confirmationText) => {
+    try {
+      await backupService.clearLocalData(currentShopId, confirmationText);
+      await storageService.initShop(currentShopId);
+      setProducts([]);
+      setSales([]);
+      setPurchases([]);
+      setSuppliers([]);
+      setCustomers([]);
+      setCategories([]);
+      setAuditLogs([]);
+
+      addAuditLog('Database Reset', `Cleared all local data for shop ${currentShopId}`);
+      showToast('Data Cleared', 'All local business records have been removed.', 'warning');
+      return { success: true };
+    } catch (err) {
+      showToast('Clear Failed', err.message, 'danger');
+      return { success: false, error: err.message };
+    }
+  };
+
   const resetAllData = () => {
+    // Section 41: REMOVE OR DISABLE in production
+    if (import.meta.env.PROD) {
+      showToast('Feature Disabled', 'Demo database restoration is disabled in production to protect real commercial data.', 'warning');
+      return;
+    }
+
     storageService.resetAll({
       products: INITIAL_PRODUCTS,
       categories: [],
@@ -615,7 +744,9 @@ export const InventoryProvider = ({ children }) => {
     sales,
     setSales,
     createSale,
+    cancelSale,
     recordPayment,
+    isProcessingSale,
 
     // Purchases & Suppliers
     purchases,
@@ -638,7 +769,7 @@ export const InventoryProvider = ({ children }) => {
     revokeAllOtherSessions,
     auditLogs,
 
-    // Auth
+    // Auth & Licensing
     user,
     setUser,
     users,
@@ -660,6 +791,10 @@ export const InventoryProvider = ({ children }) => {
     updateUserProfile,
     isAuthenticated,
     setIsAuthenticated,
+    shopId: currentShopId,
+    licenseStatus,
+    isNewDevice,
+    dismissNewDevicePrompt: () => setIsNewDevice(false),
 
     // UI & Shell
     currentPage,
@@ -681,8 +816,14 @@ export const InventoryProvider = ({ children }) => {
     isGlobalSearchOpen,
     setIsGlobalSearchOpen,
 
-    // Exporter & Backup
+    // Exporter, IndexedDB & Backup
     exportCSV,
+    exportBackup,
+    validateBackup,
+    restoreBackup,
+    clearLocalData,
+    getLastBackupInfo: () => backupService.getLastBackupInfo(currentShopId),
+    checkDatabaseHealth: () => checkDatabaseHealth(currentShopId),
     resetAllData,
 
     // Live Metrics

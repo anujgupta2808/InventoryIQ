@@ -232,4 +232,49 @@ describe('Core Business Services (Products, Sales, Purchases, Ledger)', () => {
       expect(updatedSale.status).toBe('Paid');
     });
   });
+
+  describe('Fractional Quantities & Multi-line Cancellations', () => {
+    it('supports fractional stock quantities without truncation', () => {
+      const res = productService.addProduct({
+        name: 'Basmati Rice',
+        sku: 'RICE-55',
+        category: 'Groceries',
+        price: 120,
+        costPrice: 90,
+        stock: 12.75,
+        minStock: 2.5
+      });
+      expect(res.success).toBe(true);
+      expect(res.product.stock).toBe(12.75);
+      expect(res.product.minStock).toBe(2.5);
+    });
+
+    it('correctly aggregates multiple line items of the same product during cancellation', () => {
+      // Product 1 initial stock is 25
+      const initialStock = productService.getById(1).stock;
+      expect(initialStock).toBe(25);
+
+      // Create a sale where product 1 appears twice (qty 2 and qty 3 = 5 total)
+      const saleRes = salesService.createSale({
+        customerName: 'Multi-Line Customer',
+        items: [
+          { productId: 1, name: 'Wireless Bluetooth Mouse', price: 1299, qty: 2 },
+          { productId: 1, name: 'Wireless Bluetooth Mouse', price: 1299, qty: 3 }
+        ],
+        paidAmount: 2598,
+        paymentMethod: 'UPI'
+      }, 'Admin');
+
+      expect(saleRes.success).toBe(true);
+      // Stock should have deducted 5 -> 20
+      expect(productService.getById(1).stock).toBe(20);
+
+      // Cancel the sale
+      const cancelRes = salesService.cancelSale(saleRes.sale.id, 'Duplicate entry correction', 'Admin');
+      expect(cancelRes.success).toBe(true);
+
+      // Stock should be fully restored back to 25 (both line items restored, fixing .find() bug)
+      expect(productService.getById(1).stock).toBe(25);
+    });
+  });
 });

@@ -10,10 +10,13 @@ export const ROLE_PERMISSIONS = {
     'purchases.view', 'purchases.create', 'purchases.update', 'purchases.delete',
     'customers.view', 'customers.manage', 'customers.delete',
     'suppliers.view', 'suppliers.manage', 'suppliers.delete',
+    'payments.view', 'payments.create', 'payments.delete',
     'analytics.view', 'reports.export',
     'members.view', 'members.invite', 'members.manage',
     'organization.settings', 'organization.delete', 'organization.transfer',
-    'security.manage', 'sessions.revoke'
+    'security.manage', 'sessions.revoke',
+    'database.export', 'database.import', 'database.reset',
+    'license.manage', 'devices.manage'
   ],
   admin: [
     'inventory.view', 'inventory.create', 'inventory.update', 'inventory.delete',
@@ -21,10 +24,13 @@ export const ROLE_PERMISSIONS = {
     'purchases.view', 'purchases.create', 'purchases.update',
     'customers.view', 'customers.manage',
     'suppliers.view', 'suppliers.manage',
+    'payments.view', 'payments.create',
     'analytics.view', 'reports.export',
     'members.view', 'members.invite',
     'organization.settings',
-    'security.manage', 'sessions.revoke'
+    'security.manage', 'sessions.revoke',
+    'database.export', 'database.import',
+    'devices.manage'
   ],
   manager: [
     'inventory.view', 'inventory.create', 'inventory.update',
@@ -32,8 +38,10 @@ export const ROLE_PERMISSIONS = {
     'purchases.view', 'purchases.create',
     'customers.view', 'customers.manage',
     'suppliers.view', 'suppliers.manage',
+    'payments.view', 'payments.create',
     'analytics.view', 'reports.export',
-    'members.view'
+    'members.view',
+    'database.export'
   ],
   staff: [
     'inventory.view',
@@ -57,6 +65,14 @@ export class PermissionService {
     const role = this.normalizeRole(userRole);
     const perms = ROLE_PERMISSIONS[role] || [];
     return perms.includes(permission);
+  }
+
+  assertPermission(userRole, permission, actionDescription = 'perform this operation') {
+    if (!this.hasPermission(userRole, permission)) {
+      const role = this.normalizeRole(userRole);
+      throw new Error(`Access Denied: Role "${role.toUpperCase()}" does not have permission to ${actionDescription} ("${permission}").`);
+    }
+    return true;
   }
 
   canManageMembers(userRole) {

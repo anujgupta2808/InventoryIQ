@@ -39,7 +39,7 @@ export class SupplierService {
     const newSupplier = {
       id: newId,
       name: String(suppData.name || '').trim(),
-      contactPerson: String(suppData.contactPerson || '').trim() || 'Vendor Rep',
+      contactPerson: String(suppData.contactPerson || '').trim(),
       email: String(suppData.email || '').trim(),
       phone: String(suppData.phone || '').trim(),
       address: String(suppData.address || '').trim(),

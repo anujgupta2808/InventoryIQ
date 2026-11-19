@@ -32,6 +32,7 @@
     "@vitejs/plugin-react": "^4.2.1",
     "@vitest/coverage-v8": "^2.1.9",
     "autoprefixer": "^10.6.2",
+    "fake-indexeddb": "^6.2.8",
     "jsdom": "^25.0.1",
     "postcss": "^8.5.32",
     "tailwindcss": "^4.3.3",

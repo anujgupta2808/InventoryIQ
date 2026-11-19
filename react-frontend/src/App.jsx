@@ -7,6 +7,7 @@ import { Topbar } from './components/Topbar';
 import { GlobalSearchModal } from './components/GlobalSearchModal';
 import { InvoiceModal } from './components/InvoiceModal';
 import { ConfirmModal } from './components/ConfirmModal';
+import { NewDeviceModal } from './components/NewDeviceModal';
 import { ToastContainer } from './components/ToastContainer';
 
 // Pages
@@ -114,6 +115,7 @@ export function App() {
       <GlobalSearchModal />
       <InvoiceModal />
       <ConfirmModal />
+      <NewDeviceModal />
       <ToastContainer />
     </div>
   );

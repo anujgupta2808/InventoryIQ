@@ -1,6 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import { exportService } from '../../../src/services/exportService';
 import { importService } from '../../../src/services/importService';
+import { backupService } from '../../../src/services/backupService';
 import { permissionService, ROLE_PERMISSIONS } from '../../../src/services/permissionService';
 
 describe('Export, Import and Permission Services', () => {
@@ -99,6 +100,56 @@ describe('Export, Import and Permission Services', () => {
       expect(permissionService.getRoleBadgeColor('admin')).toBe('badge-info');
       expect(permissionService.getRoleBadgeColor('manager')).toBe('badge-warning');
       expect(permissionService.getRoleBadgeColor('staff')).toBe('badge-secondary');
+    });
+  });
+
+  describe('backupService (Local-First Verified Archive)', () => {
+    const testShopId = 'test_shop_101';
+
+    it('generates a full backup archive with SHA-256 checksum and schema v2.0', async () => {
+      const backup = await backupService.generateBackup(testShopId);
+      expect(backup.application).toBe('InventoryIQ');
+      expect(backup.version).toBe('2.0');
+      expect(backup.shopId).toBe(testShopId);
+      expect(backup.checksum).toBeDefined();
+      expect(typeof backup.checksum).toBe('string');
+      expect(backup.checksum.length).toBe(64); // SHA-256 hex string
+      expect(backup.metadata).toBeDefined();
+      expect(backup.stores).toBeDefined();
+    });
+
+    it('validates authentic backup archive matching shop tenant', async () => {
+      const backup = await backupService.generateBackup(testShopId);
+      const jsonStr = JSON.stringify(backup);
+      const res = await backupService.validateBackupFile(jsonStr, testShopId);
+      expect(res.valid).toBe(true);
+      expect(res.errors).toHaveLength(0);
+      expect(res.payload.shopId).toBe(testShopId);
+    });
+
+    it('rejects backup with tenant shopId mismatch (cross-tenant protection)', async () => {
+      const backup = await backupService.generateBackup('shop_A');
+      const jsonStr = JSON.stringify(backup);
+      const res = await backupService.validateBackupFile(jsonStr, 'shop_B');
+      expect(res.valid).toBe(false);
+      expect(res.errors.some(e => e.includes('different shop'))).toBe(true);
+    });
+
+    it('rejects backup if SHA-256 checksum is tampered or corrupted', async () => {
+      const backup = await backupService.generateBackup(testShopId);
+      // Tamper with data without updating checksum
+      backup.stores.products = [{ id: 999, name: 'Hacked Item' }];
+      const jsonStr = JSON.stringify(backup);
+      const res = await backupService.validateBackupFile(jsonStr, testShopId);
+      expect(res.valid).toBe(false);
+      expect(res.errors.some(e => e.includes('Checksum verification failed'))).toBe(true);
+    });
+
+    it('enforces explicit "DELETE" confirmation string when clearing local data', async () => {
+      await expect(backupService.clearLocalData(testShopId, 'yes')).rejects.toThrow(/DELETE/i);
+      await expect(backupService.clearLocalData(testShopId, 'delete')).rejects.toThrow(/DELETE/i);
+      const clearRes = await backupService.clearLocalData(testShopId, 'DELETE');
+      expect(clearRes.cleared).toBe(true);
     });
   });
 });

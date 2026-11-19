@@ -200,13 +200,20 @@ export class SalesService {
       return { success: false, message: 'Sale is already cancelled.' };
     }
 
-    // Restore stock
+    // Restore stock - aggregate duplicate product lines to prevent single-match under-restoration bug
+    const qtyByProduct = new Map();
+    (sale.items || []).forEach(i => {
+      const pId = String(i.productId || i.id);
+      const q = Number(i.qty) || 0;
+      qtyByProduct.set(pId, (qtyByProduct.get(pId) || 0) + q);
+    });
+
     const products = storageService.getCollection('PRODUCTS');
     const updatedProducts = products.map(p => {
-      const line = (sale.items || []).find(i => Number(i.productId) === p.id);
-      if (line) {
-        const qty = Number(line.qty) || 0;
-        const newStock = p.stock + qty;
+      const pIdStr = String(p.id);
+      if (qtyByProduct.has(pIdStr)) {
+        const qtyToRestore = qtyByProduct.get(pIdStr);
+        const newStock = roundTo(p.stock + qtyToRestore, 3);
         const minStock = Number(p.minStock) || 0;
         const status = newStock <= 0 ? 'Out of Stock' : (newStock <= minStock ? 'Low Stock' : 'In Stock');
 
@@ -214,7 +221,7 @@ export class SalesService {
           productId: p.id,
           productName: p.name,
           type: 'RETURN',
-          quantity: qty,
+          quantity: qtyToRestore,
           previousStock: p.stock,
           newStock,
           referenceId: saleId,

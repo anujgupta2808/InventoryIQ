@@ -1,102 +1,132 @@
 /**
- * Centralized Client-Side Storage Service
- * Manages versioned local collections, schema migration, corrupted storage fallback,
- * and data integrity without external servers.
+ * Centralized Client-Side Storage Service (IndexedDB Backed)
+ * Serves as an in-memory cache and IndexedDB synchronization layer.
+ * Strictly eliminates localStorage as a source of truth for business data.
  */
 
-import { safeGet, safeSet, safeRemove, isStorageAvailable } from '../utils/storageUtils.js';
+import { openShopDatabase, getAllRecords, putRecord, deleteRecord, clearStore } from '../database/db.js';
+import { STORES, ALL_STORES } from '../database/schema.js';
 
 export const SCHEMA_VERSION = 4;
 
 export const STORAGE_KEYS = {
   SCHEMA_VERSION: 'iq_schema_version',
-  USERS: 'iq_v4_users',
-  SESSION: 'iq_v4_session',
-  PRODUCTS: 'iq_v4_products',
-  CATEGORIES: 'iq_v4_categories',
-  SALES: 'iq_v4_sales',
-  PURCHASES: 'iq_v4_purchases',
-  CUSTOMERS: 'iq_v4_customers',
-  SUPPLIERS: 'iq_v4_suppliers',
-  PAYMENTS: 'iq_v4_payments',
-  STOCK_MOVEMENTS: 'iq_v4_stockMovements',
-  SETTINGS: 'iq_v4_settings',
-  AUDIT_LOGS: 'iq_v4_auditLogs',
-  SESSIONS: 'iq_v4_sessions'
-};
-
-// Legacy keys for automatic migration
-const LEGACY_V3_KEYS = {
-  users: 'iq_v3_users',
-  session: 'iq_v3_session',
-  products: 'iq_v3_products',
-  categories: 'iq_v3_categories',
-  sales: 'iq_v3_sales',
-  purchases: 'iq_v3_purchases',
-  customers: 'iq_v3_customers',
-  suppliers: 'iq_v3_suppliers',
-  sessions: 'iq_v3_sessions',
-  auditLogs: 'iq_v3_auditLogs'
+  THEME: 'iq_theme',
+  SIDEBAR: 'iq_sidebar_collapsed',
+  DEVICE_ID: 'iq_device_id'
 };
 
 class StorageService {
   constructor() {
+    this.activeShopId = 'default_shop';
+    // Fast in-memory cache to support synchronous reads from React components
+    this.memoryCache = new Map();
     this.initialized = false;
-    this.checkAndMigrate();
+    this._initEmptyCache();
   }
 
-  checkAndMigrate() {
-    if (this.initialized || typeof window === 'undefined') return;
-
-    try {
-      const currentVer = safeGet(STORAGE_KEYS.SCHEMA_VERSION, 0);
-
-      if (currentVer < SCHEMA_VERSION) {
-        // Migrate v3 data if v4 is not populated yet
-        Object.keys(LEGACY_V3_KEYS).forEach(key => {
-          const v4Key = STORAGE_KEYS[key.toUpperCase()] || STORAGE_KEYS.AUDIT_LOGS;
-          const legacyKey = LEGACY_V3_KEYS[key];
-
-          const existingV4 = safeGet(v4Key, null);
-          if (existingV4 === null) {
-            const legacyData = safeGet(legacyKey, null);
-            if (legacyData !== null) {
-              safeSet(v4Key, legacyData);
-            }
-          }
-        });
-
-        safeSet(STORAGE_KEYS.SCHEMA_VERSION, SCHEMA_VERSION);
+  _initEmptyCache() {
+    const defaultStores = [
+      'PRODUCTS', 'CATEGORIES', 'SALES', 'SALE_ITEMS',
+      'PURCHASES', 'PURCHASE_ITEMS', 'CUSTOMERS', 'SUPPLIERS',
+      'PAYMENTS', 'STOCK_MOVEMENTS', 'AUDIT_LOGS', 'SETTINGS'
+    ];
+    defaultStores.forEach(name => {
+      if (!this.memoryCache.has(name)) {
+        this.memoryCache.set(name, []);
       }
-    } catch (e) {
-      console.warn('Storage migration failed:', e);
-    }
-
-    this.initialized = true;
+    });
   }
 
-  getStorageKey(collectionName) {
-    const key = STORAGE_KEYS[collectionName.toUpperCase()];
-    if (!key) {
-      return `iq_v4_${collectionName}`;
+  /**
+   * Initializes storage for an authenticated shop, hydrating in-memory cache from IndexedDB
+   */
+  async initShop(shopId) {
+    this.activeShopId = shopId || 'default_shop';
+    try {
+      await openShopDatabase(this.activeShopId);
+
+      // Hydrate all stores from IndexedDB
+      const storeMap = {
+        PRODUCTS: STORES.PRODUCTS,
+        CATEGORIES: STORES.CATEGORIES,
+        SALES: STORES.SALES,
+        SALE_ITEMS: STORES.SALE_ITEMS,
+        PURCHASES: STORES.PURCHASES,
+        PURCHASE_ITEMS: STORES.PURCHASE_ITEMS,
+        CUSTOMERS: STORES.CUSTOMERS,
+        SUPPLIERS: STORES.SUPPLIERS,
+        PAYMENTS: STORES.PAYMENTS,
+        STOCK_MOVEMENTS: STORES.STOCK_MOVEMENTS,
+        AUDIT_LOGS: STORES.AUDIT_LOGS
+      };
+
+      for (const [cacheKey, storeName] of Object.entries(storeMap)) {
+        try {
+          const records = await getAllRecords(this.activeShopId, storeName);
+          this.memoryCache.set(cacheKey, Array.isArray(records) ? records : []);
+        } catch (storeErr) {
+          console.warn(`Could not hydrate store ${storeName}:`, storeErr);
+        }
+      }
+
+      this.initialized = true;
+      return true;
+    } catch (err) {
+      console.error('[StorageService] Failed to initialize shop database:', err);
+      return false;
     }
-    return key;
+  }
+
+  getStoreName(name) {
+    const upper = String(name).toUpperCase();
+    const map = {
+      PRODUCTS: STORES.PRODUCTS,
+      CATEGORIES: STORES.CATEGORIES,
+      SALES: STORES.SALES,
+      SALE_ITEMS: STORES.SALE_ITEMS,
+      PURCHASES: STORES.PURCHASES,
+      PURCHASE_ITEMS: STORES.PURCHASE_ITEMS,
+      CUSTOMERS: STORES.CUSTOMERS,
+      SUPPLIERS: STORES.SUPPLIERS,
+      PAYMENTS: STORES.PAYMENTS,
+      STOCK_MOVEMENTS: STORES.STOCK_MOVEMENTS,
+      AUDIT_LOGS: STORES.AUDIT_LOGS,
+      SETTINGS: STORES.SETTINGS
+    };
+    return map[upper] || STORES.PRODUCTS;
   }
 
   getCollection(name, defaultData = []) {
-    this.checkAndMigrate();
-    const key = this.getStorageKey(name);
-    const data = safeGet(key, null);
-    if (data === null || !Array.isArray(data)) {
-      return defaultData;
+    const key = String(name).toUpperCase();
+    if (this.memoryCache.has(key)) {
+      return this.memoryCache.get(key);
     }
-    return data;
+    return defaultData;
   }
 
   setCollection(name, data) {
-    this.checkAndMigrate();
-    const key = this.getStorageKey(name);
-    return safeSet(key, Array.isArray(data) ? data : []);
+    const key = String(name).toUpperCase();
+    const arrayData = Array.isArray(data) ? data : [];
+    this.memoryCache.set(key, arrayData);
+
+    // Asynchronously synchronize with IndexedDB (No localStorage!)
+    const storeName = this.getStoreName(name);
+    if (this.activeShopId) {
+      clearStore(this.activeShopId, storeName)
+        .then(async () => {
+          for (const item of arrayData) {
+            if (item && item.id !== undefined && item.id !== null) {
+              await putRecord(this.activeShopId, storeName, { ...item, id: String(item.id) });
+            }
+          }
+        })
+        .catch(err => {
+          console.warn(`[StorageService] Background sync error for ${storeName}:`, err);
+        });
+    }
+
+    return true;
   }
 
   getItemById(name, id) {
@@ -105,121 +135,85 @@ class StorageService {
   }
 
   insertItem(name, item) {
+    const key = String(name).toUpperCase();
     const items = this.getCollection(name);
     const updated = [item, ...items];
-    this.setCollection(name, updated);
+    this.memoryCache.set(key, updated);
+
+    // Asynchronously write to IndexedDB
+    const storeName = this.getStoreName(name);
+    if (this.activeShopId && item && item.id !== undefined && item.id !== null) {
+      putRecord(this.activeShopId, storeName, { ...item, id: String(item.id) })
+        .catch(err => console.warn(`[StorageService] Error writing item to ${storeName}:`, err));
+    }
+
     return item;
   }
 
   updateItem(name, id, updates) {
+    const key = String(name).toUpperCase();
     const items = this.getCollection(name);
-    let matched = false;
+    let updatedItem = null;
+
     const updated = items.map(item => {
       if (String(item.id) === String(id)) {
-        matched = true;
-        return { ...item, ...updates, id: item.id };
+        updatedItem = { ...item, ...updates, id: item.id };
+        return updatedItem;
       }
       return item;
     });
 
-    if (matched) {
-      this.setCollection(name, updated);
-      return this.getItemById(name, id);
+    if (updatedItem) {
+      this.memoryCache.set(key, updated);
+
+      // Asynchronously update IndexedDB
+      const storeName = this.getStoreName(name);
+      if (this.activeShopId) {
+        putRecord(this.activeShopId, storeName, { ...updatedItem, id: String(updatedItem.id) })
+          .catch(err => console.warn(`[StorageService] Error updating item in ${storeName}:`, err));
+      }
+      return updatedItem;
     }
     return null;
   }
 
   removeItem(name, id) {
+    const key = String(name).toUpperCase();
     const items = this.getCollection(name);
     const filtered = items.filter(item => String(item.id) !== String(id));
-    this.setCollection(name, filtered);
+    this.memoryCache.set(key, filtered);
+
+    // Asynchronously delete from IndexedDB
+    const storeName = this.getStoreName(name);
+    if (this.activeShopId) {
+      deleteRecord(this.activeShopId, storeName, String(id))
+        .catch(err => console.warn(`[StorageService] Error deleting item from ${storeName}:`, err));
+    }
+
     return filtered.length !== items.length;
   }
 
   clearCollection(name) {
-    const key = this.getStorageKey(name);
-    safeSet(key, []);
+    const key = String(name).toUpperCase();
+    this.memoryCache.set(key, []);
+
+    const storeName = this.getStoreName(name);
+    if (this.activeShopId) {
+      clearStore(this.activeShopId, storeName)
+        .catch(err => console.warn(`[StorageService] Error clearing ${storeName}:`, err));
+    }
   }
 
   resetAll(seedData = {}) {
-    const keysToReset = [
+    const collections = [
       'PRODUCTS', 'CATEGORIES', 'SALES', 'PURCHASES', 
       'CUSTOMERS', 'SUPPLIERS', 'PAYMENTS', 'STOCK_MOVEMENTS', 'AUDIT_LOGS'
     ];
 
-    keysToReset.forEach(col => {
-      const key = STORAGE_KEYS[col];
-      const initial = seedData[col.toLowerCase()] || seedData[col] || [];
-      safeSet(key, initial);
-    });
-
-    // Also remove legacy keys to prevent lingering stale data
-    Object.values(LEGACY_V3_KEYS).forEach(k => {
-      if (k !== 'iq_v3_users' && k !== 'iq_v3_session') {
-        safeRemove(k);
-      }
-    });
-
-    return true;
-  }
-
-  exportAllData() {
-    this.checkAndMigrate();
-    const exportBundle = {
-      _meta: {
-        appName: 'InventoryIQ',
-        schemaVersion: SCHEMA_VERSION,
-        exportedAt: new Date().toISOString(),
-        clientStorage: true
-      },
-      products: this.getCollection('PRODUCTS'),
-      categories: this.getCollection('CATEGORIES'),
-      sales: this.getCollection('SALES'),
-      purchases: this.getCollection('PURCHASES'),
-      customers: this.getCollection('CUSTOMERS'),
-      suppliers: this.getCollection('SUPPLIERS'),
-      payments: this.getCollection('PAYMENTS'),
-      stockMovements: this.getCollection('STOCK_MOVEMENTS'),
-      auditLogs: this.getCollection('AUDIT_LOGS'),
-      settings: safeGet(STORAGE_KEYS.SETTINGS, {})
-    };
-
-    return exportBundle;
-  }
-
-  importAllData(bundle, options = { merge: false, backup: true }) {
-    if (!bundle || typeof bundle !== 'object') {
-      throw new Error('Invalid backup file. Must be a JSON object.');
-    }
-
-    if (options.backup) {
-      // Create backup before overriding
-      const current = this.exportAllData();
-      safeSet('iq_v4_pre_import_backup', current);
-    }
-
-    const collections = [
-      'products', 'categories', 'sales', 'purchases', 
-      'customers', 'suppliers', 'payments', 'stockMovements', 'auditLogs'
-    ];
-
     collections.forEach(col => {
-      const incoming = bundle[col];
-      if (Array.isArray(incoming)) {
-        if (options.merge) {
-          const existing = this.getCollection(col);
-          const existingIds = new Set(existing.map(i => String(i.id)));
-          const newItems = incoming.filter(i => !existingIds.has(String(i.id)));
-          this.setCollection(col, [...existing, ...newItems]);
-        } else {
-          this.setCollection(col, incoming);
-        }
-      }
+      const initial = seedData[col.toLowerCase()] || seedData[col] || [];
+      this.setCollection(col, initial);
     });
-
-    if (bundle.settings && typeof bundle.settings === 'object') {
-      safeSet(STORAGE_KEYS.SETTINGS, bundle.settings);
-    }
 
     return true;
   }

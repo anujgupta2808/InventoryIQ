@@ -142,8 +142,8 @@ export const InventoryPage = () => {
     const cleanCat = String(formData.category || '').trim();
     const cleanPrice = parseFloat(formData.price);
     const cleanCost = parseFloat(formData.costPrice || 0);
-    const cleanStock = parseInt(formData.stock, 10);
-    const cleanMinStock = parseInt(formData.minStock || 0, 10);
+    const cleanStock = parseFloat(formData.stock);
+    const cleanMinStock = parseFloat(formData.minStock || 0);
 
     if (!cleanName) {
       showToast('Validation Error', 'Please enter a product name.', 'danger');

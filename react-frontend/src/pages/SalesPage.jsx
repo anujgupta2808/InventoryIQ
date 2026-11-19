@@ -106,7 +106,7 @@ const calculatedItems = useMemo(() => {
   return cartItems.map(item => {
     const p = products.find(x => x.id === Number(item.productId));
     const price = p ? Number(p.price) || 0 : 0;
-    const qty = Math.max(1, parseInt(item.qty, 10) || 1);
+    const qty = Math.max(0.01, parseFloat(item.qty) || 1);
     const total = price * qty;
     const availableStock = p ? p.stock : 0;
     return {
@@ -762,10 +762,11 @@ return (
                             <td>
                               <input
                                 type="number"
-                                min="1"
+                                min="0.01"
+                                step="any"
                                 className={`form-control form-control-sm bg-input text-white ${isOverStock ? 'border-danger text-danger' : 'border-secondary'}`}
                                 value={item.qty}
-                                onChange={(e) => handleCartChange(index, 'qty', Math.max(1, parseInt(e.target.value, 10) || 1))}
+                                onChange={(e) => handleCartChange(index, 'qty', Math.max(0.01, parseFloat(e.target.value) || 0))}
                               />
                               {isOverStock && (
                                 <small className="text-danger d-block mt-1">

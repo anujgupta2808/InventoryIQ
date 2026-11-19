@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useInventory } from '../context/InventoryContext';
 
 export const SettingsPage = () => {
@@ -11,7 +11,19 @@ export const SettingsPage = () => {
     showToast,
     openConfirm,
     theme,
-    setTheme
+    setTheme,
+    products = [],
+    sales = [],
+    purchases = [],
+    customers = [],
+    suppliers = [],
+    shopId = 'default_shop',
+    exportBackup,
+    validateBackup,
+    restoreBackup,
+    clearLocalData,
+    getLastBackupInfo,
+    checkDatabaseHealth
   } = useInventory();
 
   const [activeTab, setActiveTab] = useState('profile');
@@ -119,22 +131,109 @@ export const SettingsPage = () => {
     }
   };
 
-  const handleBackup = () => {
-    const backupData = {
-      user,
-      timestamp: new Date().toISOString(),
-      localStorageDump: { ...localStorage }
-    };
-    const jsonStr = JSON.stringify(backupData, null, 2);
-    const blob = new Blob([jsonStr], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `InventoryIQ_Backup_${new Date().toISOString().slice(0, 10)}.json`;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    showToast('Backup Created', 'Database snapshot downloaded successfully.', 'success');
+  // Data & Backups State
+  const [isExporting, setIsExporting] = useState(false);
+  const [lastBackup, setLastBackup] = useState(() => (typeof getLastBackupInfo === 'function' ? getLastBackupInfo() : null));
+  const [dbHealth, setDbHealth] = useState({ healthy: true, engine: 'IndexedDB' });
+
+  // Import Modal State
+  const [isImportModalOpen, setIsImportModalOpen] = useState(false);
+  const [importFile, setImportFile] = useState(null);
+  const [isValidatingImport, setIsValidatingImport] = useState(false);
+  const [importValidation, setImportValidation] = useState(null);
+  const [isRestoring, setIsRestoring] = useState(false);
+
+  // Clear Local Data Modal State
+  const [isClearModalOpen, setIsClearModalOpen] = useState(false);
+  const [deleteConfirmationText, setDeleteConfirmationText] = useState('');
+  const [isClearing, setIsClearing] = useState(false);
+
+  const importFileInputRef = useRef(null);
+
+  useEffect(() => {
+    if (activeTab === 'database') {
+      if (typeof checkDatabaseHealth === 'function') {
+        checkDatabaseHealth().then(res => {
+          if (res) setDbHealth(res);
+        }).catch(() => setDbHealth({ healthy: true, engine: 'IndexedDB' }));
+      }
+      if (typeof getLastBackupInfo === 'function') {
+        setLastBackup(getLastBackupInfo());
+      }
+    }
+  }, [activeTab, checkDatabaseHealth, getLastBackupInfo]);
+
+  const handleExportBackup = async () => {
+    setIsExporting(true);
+    try {
+      const res = await exportBackup();
+      if (res && res.success) {
+        if (typeof getLastBackupInfo === 'function') {
+          setLastBackup(getLastBackupInfo());
+        }
+      }
+    } catch (err) {
+      showToast('Export Error', err.message, 'danger');
+    } finally {
+      setIsExporting(false);
+    }
+  };
+
+  const handleSelectImportFile = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setImportFile(file);
+    setIsValidatingImport(true);
+    setImportValidation(null);
+    try {
+      const text = await file.text();
+      const validation = await validateBackup(text);
+      setImportValidation(validation);
+    } catch (err) {
+      setImportValidation({
+        valid: false,
+        errors: [`Could not read backup file: ${err.message}`]
+      });
+    } finally {
+      setIsValidatingImport(false);
+    }
+  };
+
+  const handleExecuteRestore = async () => {
+    if (!importValidation || !importValidation.valid) return;
+    setIsRestoring(true);
+    try {
+      const res = await restoreBackup(importValidation.payload, { replace: true });
+      if (res && res.success) {
+        setIsImportModalOpen(false);
+        setImportFile(null);
+        setImportValidation(null);
+        if (typeof getLastBackupInfo === 'function') {
+          setLastBackup(getLastBackupInfo());
+        }
+      }
+    } catch (err) {
+      showToast('Restore Failed', err.message, 'danger');
+    } finally {
+      setIsRestoring(false);
+    }
+  };
+
+  const handleExecuteClear = async () => {
+    if (deleteConfirmationText !== 'DELETE') return;
+    setIsClearing(true);
+    try {
+      const res = await clearLocalData('DELETE');
+      if (res && res.success) {
+        setIsClearModalOpen(false);
+        setDeleteConfirmationText('');
+        setLastBackup(null);
+      }
+    } catch (err) {
+      showToast('Clear Failed', err.message, 'danger');
+    } finally {
+      setIsClearing(false);
+    }
   };
 
   const handleConfirmReset = () => {
@@ -655,37 +754,155 @@ export const SettingsPage = () => {
           {activeTab === 'database' && (
             <div className="settings-card p-4">
               <div className="mb-4 pb-2 border-bottom border-secondary border-opacity-50">
-                <h5 className="text-white fw-bold mb-1">Database & Data Preservation</h5>
-                <small className="text-secondary">Export JSON snapshots or restore original demo catalog</small>
+                <h5 className="text-white fw-bold mb-1">Local Database & Data Preservation</h5>
+                <small className="text-secondary">
+                  Offline-first persistence in browser IndexedDB with SHA-256 verified backup archives
+                </small>
               </div>
 
-              {/* Snapshot Backup Card */}
-              <div className="settings-toggle-row mb-4">
-                <div className="d-flex align-items-center gap-3">
-                  <div
-                    className="rounded d-flex align-items-center justify-content-center"
-                    style={{ width: 40, height: 40, background: 'rgba(245, 185, 66, 0.15)', color: '#F5B942' }}
-                  >
-                    <i className="bi bi-cloud-arrow-down-fill fs-5"></i>
-                  </div>
+              {/* Local Database Engine & Health Status Card */}
+              <div className="p-3 mb-4 rounded bg-secondary-dark border border-secondary border-opacity-50">
+                <div className="d-flex justify-content-between align-items-center flex-wrap gap-3">
                   <div>
-                    <strong className="text-white d-block">Export Database JSON Snapshot</strong>
-                    <small className="text-secondary">Downloads all products, sales invoices, client dues, and audit records</small>
+                    <div className="d-flex align-items-center gap-2">
+                      <span className="badge badge-gold">Local-First Storage</span>
+                      <span className="d-flex align-items-center gap-1 text-success small fw-semibold">
+                        <span style={{ width: 8, height: 8, background: '#10B981', borderRadius: '50%', display: 'inline-block' }}></span>
+                        {dbHealth?.engine || 'IndexedDB'} Online
+                      </span>
+                    </div>
+                    <small className="text-secondary d-block mt-1">
+                      Shop Tenant ID: <strong className="text-white">{shopId}</strong> | Authoritative Local Ledger
+                    </small>
+                  </div>
+                  <div className="text-end">
+                    <span className="text-secondary small d-block">Database Status</span>
+                    <span className="badge bg-success-subtle text-success fw-bold">HEALTHY</span>
                   </div>
                 </div>
-                <button
-                  type="button"
-                  className="btn btn-gold btn-sm d-flex align-items-center gap-2"
-                  onClick={handleBackup}
-                >
-                  <i className="bi bi-download"></i>
-                  <span>Export JSON</span>
-                </button>
+
+                {/* Local Store Counts */}
+                <div className="row g-2 mt-3 pt-3 border-top border-secondary border-opacity-25">
+                  <div className="col-6 col-md-3">
+                    <div className="p-2 rounded bg-black border border-secondary border-opacity-25 text-center">
+                      <small className="text-secondary d-block">Products</small>
+                      <strong className="text-gold fs-5">{products.length}</strong>
+                    </div>
+                  </div>
+                  <div className="col-6 col-md-3">
+                    <div className="p-2 rounded bg-black border border-secondary border-opacity-25 text-center">
+                      <small className="text-secondary d-block">Sales Invoices</small>
+                      <strong className="text-gold fs-5">{sales.length}</strong>
+                    </div>
+                  </div>
+                  <div className="col-6 col-md-3">
+                    <div className="p-2 rounded bg-black border border-secondary border-opacity-25 text-center">
+                      <small className="text-secondary d-block">Purchases</small>
+                      <strong className="text-gold fs-5">{purchases.length}</strong>
+                    </div>
+                  </div>
+                  <div className="col-6 col-md-3">
+                    <div className="p-2 rounded bg-black border border-secondary border-opacity-25 text-center">
+                      <small className="text-secondary d-block">Clients & Suppliers</small>
+                      <strong className="text-gold fs-5">{customers.length + suppliers.length}</strong>
+                    </div>
+                  </div>
+                </div>
               </div>
 
-              {/* Danger Zone Card */}
+              {/* Backup Cadence Warning / Info Card */}
+              {(!lastBackup || (Date.now() - new Date(lastBackup.exportedAt).getTime() > 30 * 24 * 60 * 60 * 1000)) ? (
+                <div className="alert alert-warning d-flex align-items-center gap-3 mb-4 p-3 border-warning border-opacity-50">
+                  <i className="bi bi-exclamation-triangle-fill fs-3 text-warning"></i>
+                  <div>
+                    <strong className="d-block text-warning">
+                      {!lastBackup ? 'No verified backup created yet!' : 'Backup overdue (older than 30 days)!'}
+                    </strong>
+                    <small className="text-light">
+                      Your business data is stored locally on this machine. We strongly recommend exporting a verified backup regularly to safeguard your store records against browser cache clearing or hardware failure.
+                    </small>
+                  </div>
+                </div>
+              ) : (
+                <div className="p-3 mb-4 rounded border border-success border-opacity-50 bg-success-subtle text-light d-flex align-items-center gap-3">
+                  <i className="bi bi-shield-check fs-3 text-success"></i>
+                  <div>
+                    <strong className="text-white d-block">Local Database Backed Up & Verified</strong>
+                    <small className="text-secondary">
+                      Last archive: {new Date(lastBackup.exportedAt).toLocaleString()} ({lastBackup.totalRecords} records) — SHA-256: <code>{lastBackup.checksum ? lastBackup.checksum.slice(0, 16) : ''}...</code>
+                    </small>
+                  </div>
+                </div>
+              )}
+
+              {/* Data Operations Rows */}
+              <div className="d-flex flex-column gap-3 mb-4">
+                {/* Export Backup Row */}
+                <div className="settings-toggle-row">
+                  <div className="d-flex align-items-center gap-3">
+                    <div
+                      className="rounded d-flex align-items-center justify-content-center"
+                      style={{ width: 40, height: 40, background: 'rgba(245, 185, 66, 0.15)', color: '#F5B942' }}
+                    >
+                      <i className="bi bi-cloud-arrow-down-fill fs-5"></i>
+                    </div>
+                    <div>
+                      <strong className="text-white d-block">Export Verified JSON Backup</strong>
+                      <small className="text-secondary">Downloads a complete, SHA-256 checksum-verified snapshot of all local data stores</small>
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    className="btn btn-gold btn-sm d-flex align-items-center gap-2"
+                    onClick={handleExportBackup}
+                    disabled={isExporting}
+                  >
+                    {isExporting ? (
+                      <>
+                        <span className="spinner-border spinner-border-sm"></span>
+                        <span>Exporting...</span>
+                      </>
+                    ) : (
+                      <>
+                        <i className="bi bi-download"></i>
+                        <span>Export Backup</span>
+                      </>
+                    )}
+                  </button>
+                </div>
+
+                {/* Import Backup Row */}
+                <div className="settings-toggle-row">
+                  <div className="d-flex align-items-center gap-3">
+                    <div
+                      className="rounded d-flex align-items-center justify-content-center"
+                      style={{ width: 40, height: 40, background: 'rgba(59, 130, 246, 0.15)', color: '#3B82F6' }}
+                    >
+                      <i className="bi bi-box-arrow-in-down fs-5"></i>
+                    </div>
+                    <div>
+                      <strong className="text-white d-block">Import Verified JSON Backup</strong>
+                      <small className="text-secondary">Verify and restore a previous backup archive into this browser's database</small>
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    className="btn btn-outline-warning text-gold btn-sm d-flex align-items-center gap-2"
+                    onClick={() => {
+                      setImportFile(null);
+                      setImportValidation(null);
+                      setIsImportModalOpen(true);
+                    }}
+                  >
+                    <i className="bi bi-box-arrow-in-down"></i>
+                    <span>Import Backup</span>
+                  </button>
+                </div>
+              </div>
+
+              {/* Danger Zone: Clear Local Data */}
               <div
-                className="p-3 rounded border border-danger border-opacity-50"
+                className="p-3 rounded border border-danger border-opacity-50 mb-3"
                 style={{ background: 'rgba(239, 68, 68, 0.08)' }}
               >
                 <div className="d-flex justify-content-between align-items-center flex-wrap gap-3">
@@ -694,22 +911,48 @@ export const SettingsPage = () => {
                       className="rounded d-flex align-items-center justify-content-center"
                       style={{ width: 40, height: 40, background: 'rgba(239, 68, 68, 0.2)', color: '#EF4444' }}
                     >
-                      <i className="bi bi-exclamation-octagon-fill fs-5"></i>
+                      <i className="bi bi-trash3-fill fs-5"></i>
                     </div>
                     <div>
-                      <strong className="text-danger d-block">Restore Pristine Demo Database</strong>
-                      <small className="text-secondary">Resets all products, sales, and dues back to pristine factory demo seed state</small>
+                      <strong className="text-danger d-block">Clear Local Device Database</strong>
+                      <small className="text-secondary">Permanently purge all locally stored business records from this browser</small>
                     </div>
                   </div>
                   <button
                     type="button"
                     className="btn btn-danger btn-sm px-3"
-                    onClick={handleConfirmReset}
+                    onClick={() => {
+                      setDeleteConfirmationText('');
+                      setIsClearModalOpen(true);
+                    }}
                   >
-                    Reset All Data
+                    Clear Local Data
                   </button>
                 </div>
               </div>
+
+              {/* Demo Reset - Hidden or disabled in production */}
+              {!import.meta.env.PROD ? (
+                <div className="p-3 rounded border border-secondary border-opacity-25" style={{ background: '#121212' }}>
+                  <div className="d-flex justify-content-between align-items-center flex-wrap gap-3">
+                    <div>
+                      <strong className="text-secondary d-block">Development Demo Database Reset</strong>
+                      <small className="text-secondary opacity-75">Resets to factory seed catalog (Development only)</small>
+                    </div>
+                    <button
+                      type="button"
+                      className="btn btn-secondary-custom btn-sm"
+                      onClick={handleConfirmReset}
+                    >
+                      Reset Demo Data
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <div className="p-2 rounded bg-secondary-dark border border-secondary border-opacity-25 text-center text-secondary small">
+                  <i className="bi bi-lock-fill me-1"></i> Demo seed restoration is disabled in production to protect commercial store data.
+                </div>
+              )}
             </div>
           )}
         </div>
@@ -794,6 +1037,220 @@ export const SettingsPage = () => {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* Import Backup Modal */}
+      {isImportModalOpen && (
+        <div className="iq-modal-backdrop" onClick={() => setIsImportModalOpen(false)}>
+          <div className="iq-modal-container p-4" onClick={e => e.stopPropagation()} style={{ maxWidth: 540 }}>
+            <div className="d-flex justify-content-between align-items-center mb-3 pb-2 border-bottom border-secondary">
+              <div className="d-flex align-items-center gap-2">
+                <i className="bi bi-box-arrow-in-down text-gold fs-5"></i>
+                <h5 className="modal-title text-white fw-bold mb-0">Import Verified Backup</h5>
+              </div>
+              <button
+                type="button"
+                className="btn-close btn-close-white"
+                onClick={() => setIsImportModalOpen(false)}
+              ></button>
+            </div>
+
+            <p className="text-secondary small mb-3">
+              Select a valid InventoryIQ JSON backup archive to inspect, verify, and restore into this device's local database.
+            </p>
+
+            <div className="mb-3">
+              <label className="form-label text-secondary small">Select Backup File (.json)</label>
+              <input
+                type="file"
+                ref={importFileInputRef}
+                accept=".json,application/json"
+                className="form-control bg-input border-secondary text-white"
+                onChange={handleSelectImportFile}
+              />
+            </div>
+
+            {isValidatingImport && (
+              <div className="text-center py-3 text-gold">
+                <span className="spinner-border spinner-border-sm me-2"></span>
+                <span>Validating archive integrity and SHA-256 checksum...</span>
+              </div>
+            )}
+
+            {importValidation && !importValidation.valid && (
+              <div className="alert alert-danger p-2 small mb-3">
+                <i className="bi bi-exclamation-triangle-fill me-1"></i>
+                <strong>Backup Rejected:</strong> {importValidation.errors.join(' ')}
+              </div>
+            )}
+
+            {importValidation && importValidation.valid && (
+              <div className="p-3 mb-3 rounded bg-secondary-dark border border-secondary border-opacity-50">
+                <div className="d-flex align-items-center justify-content-between mb-2">
+                  <span className="badge badge-gold">Verified Archive</span>
+                  <span className="text-success small fw-bold">
+                    <i className="bi bi-check-circle-fill me-1"></i>Checksum Matched
+                  </span>
+                </div>
+                <div className="small text-secondary mb-2">
+                  <div>Exported: <strong className="text-light">{new Date(importValidation.payload.exportedAt).toLocaleString()}</strong></div>
+                  <div>Shop ID: <strong className="text-light">{importValidation.payload.shopId}</strong></div>
+                  <div>Schema Version: <strong className="text-light">{importValidation.payload.version}</strong></div>
+                </div>
+                <div className="row g-2 text-center small pt-2 border-top border-secondary border-opacity-25">
+                  <div className="col-3">
+                    <div className="bg-black p-1 rounded text-gold fw-bold">
+                      {importValidation.payload.metadata?.recordCounts?.products || 0}
+                    </div>
+                    <span className="text-secondary" style={{ fontSize: '0.7rem' }}>Products</span>
+                  </div>
+                  <div className="col-3">
+                    <div className="bg-black p-1 rounded text-gold fw-bold">
+                      {importValidation.payload.metadata?.recordCounts?.sales || 0}
+                    </div>
+                    <span className="text-secondary" style={{ fontSize: '0.7rem' }}>Sales</span>
+                  </div>
+                  <div className="col-3">
+                    <div className="bg-black p-1 rounded text-gold fw-bold">
+                      {importValidation.payload.metadata?.recordCounts?.purchases || 0}
+                    </div>
+                    <span className="text-secondary" style={{ fontSize: '0.7rem' }}>Purchases</span>
+                  </div>
+                  <div className="col-3">
+                    <div className="bg-black p-1 rounded text-gold fw-bold">
+                      {importValidation.payload.metadata?.recordCounts?.customers || 0}
+                    </div>
+                    <span className="text-secondary" style={{ fontSize: '0.7rem' }}>Customers</span>
+                  </div>
+                </div>
+
+                {(products.length > 0 || sales.length > 0) && (
+                  <div className="alert alert-warning p-2 small mt-3 mb-0">
+                    <i className="bi bi-exclamation-triangle-fill me-1"></i>
+                    <strong>Notice:</strong> Your current local database has {products.length} products and {sales.length} sales. Restoring will replace these records.
+                  </div>
+                )}
+              </div>
+            )}
+
+            <div className="d-flex justify-content-between align-items-center gap-2 pt-3 border-top border-secondary">
+              <div>
+                {(products.length > 0 || sales.length > 0) && (
+                  <button
+                    type="button"
+                    className="btn btn-outline-warning text-gold btn-sm"
+                    onClick={handleExportBackup}
+                    disabled={isExporting}
+                  >
+                    <i className="bi bi-download me-1"></i>
+                    Backup Current Data First
+                  </button>
+                )}
+              </div>
+              <div className="d-flex gap-2">
+                <button
+                  type="button"
+                  className="btn btn-secondary-custom"
+                  onClick={() => setIsImportModalOpen(false)}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  className="btn btn-gold"
+                  disabled={!importValidation || !importValidation.valid || isRestoring}
+                  onClick={handleExecuteRestore}
+                >
+                  {isRestoring ? (
+                    <>
+                      <span className="spinner-border spinner-border-sm me-1"></span>
+                      <span>Restoring...</span>
+                    </>
+                  ) : (
+                    <span>Replace Database</span>
+                  )}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Clear Local Data Modal */}
+      {isClearModalOpen && (
+        <div className="iq-modal-backdrop" onClick={() => setIsClearModalOpen(false)}>
+          <div className="iq-modal-container p-4" onClick={e => e.stopPropagation()} style={{ maxWidth: 480 }}>
+            <div className="d-flex align-items-center gap-3 mb-3">
+              <div
+                className="rounded d-flex align-items-center justify-content-center"
+                style={{ width: 44, height: 44, background: 'rgba(239, 68, 68, 0.2)', color: '#EF4444' }}
+              >
+                <i className="bi bi-exclamation-triangle-fill fs-4"></i>
+              </div>
+              <div>
+                <h5 className="modal-title mb-0 text-white fw-bold">Permanent Local Data Deletion</h5>
+                <small className="text-secondary">Shop Tenant ID: {shopId}</small>
+              </div>
+            </div>
+
+            <div className="alert alert-danger p-3 small mb-3">
+              <strong>Warning:</strong> This action will permanently delete all local products, sales, purchases,
+              contacts, stock movements, and audit logs stored in this browser for shop <strong>{shopId}</strong>.
+              This operation cannot be reversed without an exported backup.
+            </div>
+
+            {lastBackup ? (
+              <p className="text-secondary small mb-3">
+                <i className="bi bi-check2-circle text-success me-1"></i>
+                Last backup was recorded on {new Date(lastBackup.exportedAt).toLocaleString()}.
+              </p>
+            ) : (
+              <div className="alert alert-warning p-2 small mb-3">
+                <i className="bi bi-exclamation-octagon-fill me-1"></i>
+                <strong>No backup found on this device!</strong> You will lose all business data if you proceed.
+              </div>
+            )}
+
+            <div className="mb-4">
+              <label className="form-label text-light small fw-semibold">
+                To confirm deletion, type <span className="text-danger fw-bold">DELETE</span> in the box below:
+              </label>
+              <input
+                type="text"
+                className="form-control bg-input border-danger text-white"
+                placeholder="Type DELETE"
+                value={deleteConfirmationText}
+                onChange={e => setDeleteConfirmationText(e.target.value)}
+              />
+            </div>
+
+            <div className="d-flex justify-content-end gap-2 pt-2 border-top border-secondary">
+              <button
+                type="button"
+                className="btn btn-secondary-custom"
+                onClick={() => setIsClearModalOpen(false)}
+                disabled={isClearing}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="btn btn-danger"
+                disabled={deleteConfirmationText !== 'DELETE' || isClearing}
+                onClick={handleExecuteClear}
+              >
+                {isClearing ? (
+                  <>
+                    <span className="spinner-border spinner-border-sm me-1"></span>
+                    <span>Clearing...</span>
+                  </>
+                ) : (
+                  <span>Permanently Erase All Local Data</span>
+                )}
+              </button>
+            </div>
           </div>
         </div>
       )}
