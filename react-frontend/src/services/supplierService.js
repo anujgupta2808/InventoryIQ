@@ -149,6 +149,38 @@ export class SupplierService {
       balances
     };
   }
+
+  reconcileBalances() {
+    const purchases = storageService.getCollection('PURCHASES');
+    const payments = storageService.getCollection('PAYMENTS');
+    const suppliers = this.getAll();
+
+    const reconciled = suppliers.map(s => {
+      const matchPurchases = purchases.filter(p =>
+        (p.supplierId && String(p.supplierId) === String(s.id)) ||
+        (p.supplierName && String(p.supplierName).trim().toLowerCase() === String(s.name).trim().toLowerCase())
+      );
+      const matchPayments = payments.filter(p =>
+        p.partyType === 'SUPPLIER' && (
+          (p.referenceId && String(p.referenceId) === String(s.id)) ||
+          (p.partyName && String(p.partyName).trim().toLowerCase() === String(s.name).trim().toLowerCase())
+        )
+      );
+
+      const totalPurchased = matchPurchases.reduce((sum, p) => sum + (Number(p.amount) || 0), 0);
+      const totalPaid = matchPayments.reduce((sum, pay) => sum + (Number(pay.amount) || 0), 0);
+      const balanceDue = Math.max(0, totalPurchased - totalPaid);
+
+      return {
+        ...s,
+        totalPurchases: `₹${Number(totalPurchased.toFixed(2)).toLocaleString('en-IN')}`,
+        balanceDue: Number(balanceDue.toFixed(2))
+      };
+    });
+
+    storageService.setCollection(this.collectionName, reconciled);
+    return reconciled;
+  }
 }
 
 export const supplierService = new SupplierService();

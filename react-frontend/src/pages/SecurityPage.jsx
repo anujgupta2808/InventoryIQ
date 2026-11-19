@@ -63,7 +63,7 @@ export const SecurityPage = () => {
         const parsed = JSON.parse(stored);
         if (Array.isArray(parsed) && parsed.length > 0) return parsed;
       }
-    } catch (e) {}
+    } catch (e) { }
     return [
       {
         id: user?.id || 'usr-1',
@@ -95,7 +95,7 @@ export const SecurityPage = () => {
   useEffect(() => {
     try {
       localStorage.setItem('iq_team_members', JSON.stringify(teamMembers));
-    } catch (e) {}
+    } catch (e) { }
   }, [teamMembers]);
 
   const [inviteModalOpen, setInviteModalOpen] = useState(false);
@@ -331,12 +331,22 @@ export const SecurityPage = () => {
   };
 
   // --------------------------------------------------------------------------
-  // TEAM MANAGEMENT HANDLERS
+  // TEAM MANAGEMENT HANDLERS (With Strict Anti-Role-Escalation Checks)
   // --------------------------------------------------------------------------
   const handleInviteSubmit = (e) => {
     e.preventDefault();
     if (!inviteData.name || !inviteData.email) {
       showToast('Validation Error', 'Name and email are required.', 'danger');
+      return;
+    }
+
+    // Role escalation guard: only Owner can invite Owner or Admin
+    if (inviteData.role === 'owner' && !isOwner) {
+      showToast('Permission Denied', 'Only the organization Owner can invite an Owner.', 'danger');
+      return;
+    }
+    if (inviteData.role === 'admin' && !isOwner) {
+      showToast('Permission Denied', 'Only the organization Owner can invite an Admin.', 'danger');
       return;
     }
 
@@ -356,10 +366,48 @@ export const SecurityPage = () => {
     addAuditLog('Member Invited', `Invited ${newMember.name} (${newMember.email}) as ${newMember.role}`);
   };
 
-  const handleChangeMemberRole = (memberId, nextRole) => {
+  const handleChangeMemberRole = async (memberId, nextRole) => {
     if (!canManageMembers) {
       showToast('Access Denied', 'Only Owners and Admins can alter team role permissions.', 'danger');
       return;
+    }
+
+    // Strict Role Escalation Prevention:
+    // 1. Only Owner can grant 'owner'
+    if (nextRole === 'owner' && !isOwner) {
+      showToast('Permission Denied', 'Only the organization Owner can transfer ownership or assign the Owner role.', 'danger');
+      return;
+    }
+
+    // 2. Only Owner can promote to 'admin'
+    if (nextRole === 'admin' && !isOwner) {
+      showToast('Permission Denied', 'Only the organization Owner can promote a member to Admin.', 'danger');
+      return;
+    }
+
+    // 3. Admin cannot alter an existing Owner's role
+    const targetMember = teamMembers.find(m => m.id === memberId);
+    if (targetMember?.role === 'owner' && !isOwner) {
+      showToast('Permission Denied', 'Admins cannot modify the account or role of the organization Owner.', 'danger');
+      return;
+    }
+
+    if (isSupabaseConfigured() && user?.organizationId) {
+      try {
+        const { error } = await supabase
+          .from('organization_members')
+          .update({ role: nextRole })
+          .eq('organization_id', user.organizationId)
+          .eq('user_id', memberId);
+
+        if (error) {
+          showToast('Database Error', error.message, 'danger');
+          return;
+        }
+      } catch (err) {
+        showToast('Update Failed', err.message, 'danger');
+        return;
+      }
     }
 
     setTeamMembers(prev =>
@@ -376,6 +424,10 @@ export const SecurityPage = () => {
     }
     if (member.role === 'owner') {
       showToast('Cannot Remove Owner', 'The organization primary owner cannot be removed.', 'warning');
+      return;
+    }
+    if (member.role === 'admin' && !isOwner) {
+      showToast('Permission Denied', 'Admins cannot remove other Administrator accounts. Only the Owner can remove an Admin.', 'danger');
       return;
     }
 
@@ -762,15 +814,14 @@ export const SecurityPage = () => {
                   <td className="text-secondary">{member.email}</td>
                   <td>
                     <span
-                      className={`badge ${
-                        member.role === 'owner'
-                          ? 'badge-gold'
-                          : member.role === 'admin'
+                      className={`badge ${member.role === 'owner'
+                        ? 'badge-gold'
+                        : member.role === 'admin'
                           ? 'badge-info'
                           : member.role === 'manager'
-                          ? 'badge-warning'
-                          : 'badge-secondary'
-                      }`}
+                            ? 'badge-warning'
+                            : 'badge-secondary'
+                        }`}
                     >
                       {member.role.toUpperCase()}
                     </span>
@@ -890,13 +941,13 @@ export const SecurityPage = () => {
       {/* 2FA ENROLLMENT MODAL (QR CODE + VERIFY + RECOVERY CODES)              */}
       {/* -------------------------------------------------------------------- */}
       {enrollModal.isOpen && (
-        <div 
-          className="iq-modal-backdrop" 
+        <div
+          className="iq-modal-backdrop"
           style={{ zIndex: 1060, opacity: 1 }}
           onClick={() => setEnrollModal(prev => ({ ...prev, isOpen: false }))}
         >
-          <div 
-            className="iq-modal-container p-0" 
+          <div
+            className="iq-modal-container p-0"
             style={{ maxWidth: 520, opacity: 1, backgroundColor: '#1A1A1A' }}
             onClick={(e) => e.stopPropagation()}
           >
@@ -915,140 +966,140 @@ export const SecurityPage = () => {
             </div>
 
             <div className="p-4" style={{ opacity: 1 }}>
-                {enrollModal.step === 'qr' ? (
-                  <div>
-                    <p className="text-secondary small mb-3">
-                      1. Open your authenticator app (Google Authenticator, Authy, Microsoft Authenticator).<br />
-                      2. Scan this QR code or enter the secret key manually.<br />
-                      3. Enter the 6-digit verification code below.
-                    </p>
+              {enrollModal.step === 'qr' ? (
+                <div>
+                  <p className="text-secondary small mb-3">
+                    1. Open your authenticator app (Google Authenticator, Authy, Microsoft Authenticator).<br />
+                    2. Scan this QR code or enter the secret key manually.<br />
+                    3. Enter the 6-digit verification code below.
+                  </p>
 
-                    {/* QR Code Container */}
-                    <div className="text-center p-3 rounded bg-white d-inline-block mx-auto mb-3 w-100" style={{ maxWidth: 240 }}>
-                      {enrollModal.qrCodeUrl ? (
-                        <img src={enrollModal.qrCodeUrl} alt="TOTP QR Code" className="img-fluid" style={{ width: 200, height: 200 }} />
-                      ) : (
-                        <div className="text-dark p-4">Loading QR Code...</div>
-                      )}
-                    </div>
-
-                    {/* Manual Secret Key */}
-                    <div className="p-2 rounded bg-secondary-dark border border-secondary border-opacity-50 mb-3 d-flex align-items-center justify-content-between">
-                      <div>
-                        <small className="text-secondary d-block" style={{ fontSize: '0.7rem' }}>Manual Secret Key:</small>
-                        <code className="text-gold fw-bold" style={{ fontSize: '0.85rem' }}>{enrollModal.secret}</code>
-                      </div>
-                      <button
-                        type="button"
-                        className="btn btn-sm btn-outline-warning text-gold py-1 px-2"
-                        onClick={() => {
-                          navigator.clipboard.writeText(enrollModal.secret);
-                          showToast('Copied', 'TOTP Secret key copied to clipboard!', 'info');
-                        }}
-                      >
-                        Copy
-                      </button>
-                    </div>
-
-                    {/* Error Banner */}
-                    {enrollModal.error && (
-                      <div className="p-2 mb-3 rounded border border-danger border-opacity-50 text-danger small">
-                        {enrollModal.error}
-                      </div>
+                  {/* QR Code Container */}
+                  <div className="text-center p-3 rounded bg-white d-inline-block mx-auto mb-3 w-100" style={{ maxWidth: 240 }}>
+                    {enrollModal.qrCodeUrl ? (
+                      <img src={enrollModal.qrCodeUrl} alt="TOTP QR Code" className="img-fluid" style={{ width: 200, height: 200 }} />
+                    ) : (
+                      <div className="text-dark p-4">Loading QR Code...</div>
                     )}
-
-                    {/* Verification Form */}
-                    <form onSubmit={handleVerifyEnrollment}>
-                      <div className="mb-3">
-                        <label className="form-label text-secondary small">Enter 6-Digit Verification Code</label>
-                        <input
-                          type="text"
-                          inputMode="numeric"
-                          pattern="[0-9]*"
-                          maxLength={6}
-                          autoFocus
-                          required
-                          className="form-control form-control-iq text-center fw-bold fs-4"
-                          style={{ letterSpacing: '0.3rem' }}
-                          placeholder="000000"
-                          value={enrollModal.verifyCode}
-                          onChange={(e) => setEnrollModal(prev => ({
-                            ...prev,
-                            verifyCode: e.target.value.replace(/\D/g, ''),
-                            error: ''
-                          }))}
-                        />
-                      </div>
-
-                      <button
-                        type="submit"
-                        className="btn-gold w-100 py-2 fw-semibold"
-                        disabled={enrollModal.isSubmitting || enrollModal.verifyCode.length < 6}
-                      >
-                        {enrollModal.isSubmitting ? 'Verifying Code...' : 'Verify & Activate 2FA'}
-                      </button>
-                    </form>
                   </div>
-                ) : (
-                  /* Step 2: Recovery Codes */
-                  <div>
-                    <div className="p-3 rounded border border-warning border-opacity-50 mb-3" style={{ background: 'rgba(245, 185, 66, 0.1)' }}>
-                      <h6 className="text-gold fw-bold mb-1">Emergency Recovery Backup Codes</h6>
-                      <p className="text-secondary small mb-0">
-                        If you lose access to your authenticator device, each recovery code can be used once to access your account. Store them in a secure password manager.
-                      </p>
-                    </div>
 
-                    <div className="p-3 rounded bg-secondary-dark border border-secondary border-opacity-50 mb-3">
-                      <div className="row g-2">
-                        {enrollModal.recoveryCodes.map((code, idx) => (
-                          <div key={idx} className="col-6">
-                            <code className="text-white fw-bold d-block p-1 rounded bg-black text-center" style={{ fontSize: '0.85rem' }}>
-                              {code}
-                            </code>
-                          </div>
-                        ))}
-                      </div>
+                  {/* Manual Secret Key */}
+                  <div className="p-2 rounded bg-secondary-dark border border-secondary border-opacity-50 mb-3 d-flex align-items-center justify-content-between">
+                    <div>
+                      <small className="text-secondary d-block" style={{ fontSize: '0.7rem' }}>Manual Secret Key:</small>
+                      <code className="text-gold fw-bold" style={{ fontSize: '0.85rem' }}>{enrollModal.secret}</code>
                     </div>
+                    <button
+                      type="button"
+                      className="btn btn-sm btn-outline-warning text-gold py-1 px-2"
+                      onClick={() => {
+                        navigator.clipboard.writeText(enrollModal.secret);
+                        showToast('Copied', 'TOTP Secret key copied to clipboard!', 'info');
+                      }}
+                    >
+                      Copy
+                    </button>
+                  </div>
 
-                    <div className="d-flex align-items-center gap-2 mb-3">
-                      <button
-                        type="button"
-                        className="btn btn-secondary-custom btn-sm flex-fill"
-                        onClick={() => {
-                          navigator.clipboard.writeText(enrollModal.recoveryCodes.join('\n'));
-                          showToast('Codes Copied', 'All 8 recovery backup codes copied to clipboard!', 'info');
-                        }}
-                      >
-                        <i className="bi bi-clipboard me-1"></i> Copy All Codes
-                      </button>
+                  {/* Error Banner */}
+                  {enrollModal.error && (
+                    <div className="p-2 mb-3 rounded border border-danger border-opacity-50 text-danger small">
+                      {enrollModal.error}
+                    </div>
+                  )}
+
+                  {/* Verification Form */}
+                  <form onSubmit={handleVerifyEnrollment}>
+                    <div className="mb-3">
+                      <label className="form-label text-secondary small">Enter 6-Digit Verification Code</label>
+                      <input
+                        type="text"
+                        inputMode="numeric"
+                        pattern="[0-9]*"
+                        maxLength={6}
+                        autoFocus
+                        required
+                        className="form-control form-control-iq text-center fw-bold fs-4"
+                        style={{ letterSpacing: '0.3rem' }}
+                        placeholder="000000"
+                        value={enrollModal.verifyCode}
+                        onChange={(e) => setEnrollModal(prev => ({
+                          ...prev,
+                          verifyCode: e.target.value.replace(/\D/g, ''),
+                          error: ''
+                        }))}
+                      />
                     </div>
 
                     <button
-                      type="button"
+                      type="submit"
                       className="btn-gold w-100 py-2 fw-semibold"
-                      onClick={() => setEnrollModal(prev => ({ ...prev, isOpen: false }))}
+                      disabled={enrollModal.isSubmitting || enrollModal.verifyCode.length < 6}
                     >
-                      I Have Saved My Recovery Codes
+                      {enrollModal.isSubmitting ? 'Verifying Code...' : 'Verify & Activate 2FA'}
+                    </button>
+                  </form>
+                </div>
+              ) : (
+                /* Step 2: Recovery Codes */
+                <div>
+                  <div className="p-3 rounded border border-warning border-opacity-50 mb-3" style={{ background: 'rgba(245, 185, 66, 0.1)' }}>
+                    <h6 className="text-gold fw-bold mb-1">Emergency Recovery Backup Codes</h6>
+                    <p className="text-secondary small mb-0">
+                      If you lose access to your authenticator device, each recovery code can be used once to access your account. Store them in a secure password manager.
+                    </p>
+                  </div>
+
+                  <div className="p-3 rounded bg-secondary-dark border border-secondary border-opacity-50 mb-3">
+                    <div className="row g-2">
+                      {enrollModal.recoveryCodes.map((code, idx) => (
+                        <div key={idx} className="col-6">
+                          <code className="text-white fw-bold d-block p-1 rounded bg-black text-center" style={{ fontSize: '0.85rem' }}>
+                            {code}
+                          </code>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div className="d-flex align-items-center gap-2 mb-3">
+                    <button
+                      type="button"
+                      className="btn btn-secondary-custom btn-sm flex-fill"
+                      onClick={() => {
+                        navigator.clipboard.writeText(enrollModal.recoveryCodes.join('\n'));
+                        showToast('Codes Copied', 'All 8 recovery backup codes copied to clipboard!', 'info');
+                      }}
+                    >
+                      <i className="bi bi-clipboard me-1"></i> Copy All Codes
                     </button>
                   </div>
-                )}
-              </div>
+
+                  <button
+                    type="button"
+                    className="btn-gold w-100 py-2 fw-semibold"
+                    onClick={() => setEnrollModal(prev => ({ ...prev, isOpen: false }))}
+                  >
+                    I Have Saved My Recovery Codes
+                  </button>
+                </div>
+              )}
             </div>
           </div>
-        )}
+        </div>
+      )}
 
       {/* -------------------------------------------------------------------- */}
       {/* INVITE TEAM MEMBER MODAL                                             */}
       {/* -------------------------------------------------------------------- */}
       {inviteModalOpen && (
-        <div 
-          className="iq-modal-backdrop" 
+        <div
+          className="iq-modal-backdrop"
           style={{ zIndex: 1060, opacity: 1 }}
           onClick={() => setInviteModalOpen(false)}
         >
-          <div 
-            className="iq-modal-container p-0" 
+          <div
+            className="iq-modal-container p-0"
             style={{ maxWidth: 460, opacity: 1, backgroundColor: '#1A1A1A' }}
             onClick={(e) => e.stopPropagation()}
           >
@@ -1122,13 +1173,13 @@ export const SecurityPage = () => {
       {/* CLOUD MIGRATION MODAL (PHASE 14 DATA MIGRATION)                      */}
       {/* -------------------------------------------------------------------- */}
       {migrationModalOpen && (
-        <div 
-          className="iq-modal-backdrop" 
+        <div
+          className="iq-modal-backdrop"
           style={{ zIndex: 1060, opacity: 1 }}
           onClick={() => setMigrationModalOpen(false)}
         >
-          <div 
-            className="iq-modal-container p-0" 
+          <div
+            className="iq-modal-container p-0"
             style={{ maxWidth: 520, opacity: 1, backgroundColor: '#1A1A1A' }}
             onClick={(e) => e.stopPropagation()}
           >

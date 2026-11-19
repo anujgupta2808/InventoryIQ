@@ -62,10 +62,12 @@ export const PurchasesPage = () => {
   const [poItems, setPoItems] = useState(getInitialPoItems);
 
   const filteredPurchases = useMemo(() => {
+    const term = String(searchTerm || '').trim().toLowerCase();
     return purchases.filter(p => {
-      const matchSearch = p.id.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        p.supplierName.toLowerCase().includes(searchTerm.toLowerCase());
-      const matchStatus = selectedStatus === 'All' || p.status === selectedStatus;
+      const pId = String(p?.id ?? '').toLowerCase();
+      const sName = String(p?.supplierName ?? '').toLowerCase();
+      const matchSearch = !term || pId.includes(term) || sName.includes(term);
+      const matchStatus = selectedStatus === 'All' || p?.status === selectedStatus;
       return matchSearch && matchStatus;
     });
   }, [purchases, searchTerm, selectedStatus]);

@@ -7,6 +7,11 @@
 import { supabase, isSupabaseConfigured } from './supabaseClient.js';
 
 export class SessionService {
+  constructor() {
+    this.currentSessionId = null;
+    this.currentTokenHash = null;
+  }
+
   /**
    * Get accurate browser and operating system details from User-Agent
    */
@@ -55,6 +60,7 @@ export class SessionService {
       );
       const hashArray = Array.from(new Uint8Array(hashBuffer));
       const tokenHash = hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+      this.currentTokenHash = tokenHash;
 
       const { data, error } = await supabase
         .from('user_sessions')
@@ -68,6 +74,9 @@ export class SessionService {
         .single();
 
       if (error) throw error;
+      if (data) {
+        this.currentSessionId = data.id;
+      }
       return data;
     } catch (err) {
       console.warn('Session registration notice:', err.message);
@@ -80,7 +89,6 @@ export class SessionService {
    */
   async getActiveSessions(user) {
     if (!isSupabaseConfigured() || !user) {
-      // In standalone/demo mode, show authentic local device session
       return [
         {
           id: 'local-session',
@@ -104,15 +112,23 @@ export class SessionService {
 
       if (error) throw error;
 
-      return (data || []).map((s, index) => ({
-        id: s.id,
-        device: s.device_info || 'Unknown Browser',
-        ip: s.ip_address || 'Connected Session',
-        location: s.location || 'Verified Device',
-        lastActive: this.formatRelativeTime(s.last_active_at),
-        current: index === 0,
-        createdAt: s.created_at
-      }));
+      return (data || []).map((s) => {
+        // Authenticate current session by genuine token hash or session ID (never index === 0)
+        const isCurrent = Boolean(
+          (this.currentSessionId && s.id === this.currentSessionId) ||
+          (this.currentTokenHash && s.session_token_hash === this.currentTokenHash)
+        );
+
+        return {
+          id: s.id,
+          device: s.device_info || 'Unknown Browser',
+          ip: s.ip_address || 'Connected Session',
+          location: s.location || 'Verified Device',
+          lastActive: this.formatRelativeTime(s.last_active_at),
+          current: isCurrent,
+          createdAt: s.created_at
+        };
+      });
     } catch (err) {
       console.warn('Failed to fetch sessions from server:', err);
       return [
@@ -137,7 +153,11 @@ export class SessionService {
     }
 
     try {
-      // Call Supabase Edge Function or update table directly
+      // If revoking current session, trigger local sign out
+      if (sessionId === this.currentSessionId) {
+        await supabase.auth.signOut();
+      }
+
       const { error } = await supabase
         .from('user_sessions')
         .update({ is_revoked: true })
@@ -160,7 +180,7 @@ export class SessionService {
     }
 
     try {
-      // 1. Supabase Auth global sign out for other devices
+      // Supabase Auth global sign out for all other devices
       const { data: sessionData } = await supabase.auth.getSession();
       const token = sessionData?.session?.access_token;
 
@@ -168,11 +188,12 @@ export class SessionService {
         await supabase.auth.signOut({ scope: 'others' });
       }
 
-      // 2. Mark revoked in database
+      // Mark other sessions revoked in backend database
+      const targetCurrentId = currentSessionId || this.currentSessionId || '';
       const { error } = await supabase
         .from('user_sessions')
         .update({ is_revoked: true })
-        .neq('id', currentSessionId || '');
+        .neq('id', targetCurrentId);
 
       if (error) throw error;
 

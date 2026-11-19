@@ -5,7 +5,7 @@
  */
 
 import { storageService } from './storageService.js';
-import { roundTo, calculateStockValuation } from '../utils/calculations.js';
+import { roundTo, calculateStockValuation, calculateGrossProfit } from '../utils/calculations.js';
 import { isWithinDateRange } from '../utils/dateUtils.js';
 
 export class AnalyticsService {
@@ -34,7 +34,9 @@ export class AnalyticsService {
       return acc + (p.status === 'Pending' ? Number(p.amount) || 0 : 0);
     }, 0));
 
-    const totalProfit = roundTo(Math.max(0, totalSalesVal - totalPurchasesVal));
+    // Proper GAAP/IFRS Gross Profit = Revenue - COGS
+    const profitReport = calculateGrossProfit(sales, purchases);
+    const totalProfit = profitReport.profit;
     const valuation = calculateStockValuation(products);
 
     return {
@@ -46,6 +48,7 @@ export class AnalyticsService {
       totalCustomerDue: totalCustomerDueVal,
       totalPurchases: totalPurchasesVal,
       totalSupplierDue: totalSupplierDueVal,
+      totalCOGS: profitReport.cogs,
       profit: totalProfit,
       costValuation: valuation.costValuation,
       sellingValuation: valuation.sellingValuation,
@@ -83,14 +86,15 @@ export class AnalyticsService {
 
     const totalRevenue = roundTo(sales.reduce((sum, s) => sum + (Number(s.amount) || 0), 0));
     const totalExpenditure = roundTo(purchases.reduce((sum, p) => sum + (Number(p.amount) || 0), 0));
-    const netProfit = roundTo(Math.max(0, totalRevenue - totalExpenditure));
+    const profitReport = calculateGrossProfit(sales, purchases);
 
     return {
       salesCount: sales.length,
       purchasesCount: purchases.length,
       revenue: totalRevenue,
       expenditure: totalExpenditure,
-      profit: netProfit,
+      cogs: profitReport.cogs,
+      profit: profitReport.profit,
       sales,
       purchases
     };

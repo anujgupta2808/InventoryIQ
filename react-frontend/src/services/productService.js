@@ -24,8 +24,25 @@ export class ProductService {
     const cleanSku = String(sku).trim().toLowerCase();
     const products = this.getAll();
     return products.some(p => 
-      p.sku && p.sku.toLowerCase() === cleanSku && (excludeId === null || p.id !== Number(excludeId))
+      p.sku && String(p.sku).trim().toLowerCase() === cleanSku && (excludeId === null || String(p.id) !== String(excludeId))
     );
+  }
+
+  generateSKU(prefix = 'INV') {
+    const year = new Date().getFullYear();
+    const hex = (typeof crypto !== 'undefined' && crypto.randomUUID)
+      ? crypto.randomUUID().replace(/-/g, '').substring(0, 6).toUpperCase()
+      : Math.floor(100000 + Math.random() * 900000).toString(16).toUpperCase();
+    return `${prefix}-${year}-${hex}`;
+  }
+
+  generateId(existingProducts = []) {
+    if (existingProducts.length > 0 && existingProducts.every(p => typeof p.id === 'number' && Number.isInteger(p.id))) {
+      return Math.max(...existingProducts.map(p => Number(p.id) || 0)) + 1;
+    }
+    return (typeof crypto !== 'undefined' && crypto.randomUUID)
+      ? crypto.randomUUID()
+      : (existingProducts.length > 0 ? Math.max(...existingProducts.map(p => Number(p.id) || 0)) + 1 : 1);
   }
 
   calculateStatus(stock, minStock) {
@@ -49,12 +66,13 @@ export class ProductService {
     const costPrice = Math.max(0, parseFloat(productData.costPrice) || 0);
     const status = this.calculateStatus(stock, minStock);
 
-    const newId = products.length > 0 ? Math.max(...products.map(p => Number(p.id) || 0)) + 1 : 1;
+    const newId = productData.id || this.generateId(products);
+    const newSku = String(productData.sku || this.generateSKU()).trim();
 
     const newProduct = {
       id: newId,
       name: String(productData.name || '').trim(),
-      sku: String(productData.sku || `SKU-${Math.floor(100 + Math.random() * 900)}`).trim(),
+      sku: newSku,
       category: String(productData.category || 'General').trim(),
       stock,
       minStock,
@@ -63,7 +81,7 @@ export class ProductService {
       unit: productData.unit || 'Piece',
       barcode: productData.barcode || '',
       image: productData.image || '',
-      supplierId: productData.supplierId ? Number(productData.supplierId) : null,
+      supplierId: productData.supplierId ? (Number(productData.supplierId) || productData.supplierId) : null,
       supplierName: productData.supplierName || 'Primary Supplier',
       status,
       createdAt: new Date().toISOString(),

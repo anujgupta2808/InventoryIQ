@@ -130,6 +130,34 @@ describe('Core Business Services (Products, Sales, Purchases, Ledger)', () => {
       // Stock remains unaffected
       expect(productService.getById(2).stock).toBe(3);
     });
+
+    it('consolidates duplicate sale items, enriches cost_at_sale, and deducts total quantity correctly', () => {
+      // Product 1 stock: check current stock
+      const prod1 = productService.getById(1);
+      const startStock = prod1.stock;
+
+      const saleData = {
+        customerName: 'Aarav Patel',
+        items: [
+          { productId: 1, name: 'Wireless Bluetooth Mouse', price: 850, qty: 2 },
+          { productId: 1, name: 'Wireless Bluetooth Mouse', price: 850, qty: 3 }
+        ],
+        paidAmount: 4250,
+        paymentMethod: 'Card'
+      };
+
+      const res = salesService.createSale(saleData, 'Admin');
+      expect(res.success).toBe(true);
+      // Items consolidated
+      expect(res.sale.items).toHaveLength(1);
+      expect(res.sale.items[0].qty).toBe(5);
+      expect(res.sale.items[0].cost_at_sale).toBe(prod1.costPrice);
+      // COGS recorded
+      expect(res.sale.cogs).toBe(5 * prod1.costPrice);
+
+      // Verify stock was deducted by exactly 5
+      expect(productService.getById(1).stock).toBe(startStock - 5);
+    });
   });
 
   describe('PurchaseService & Stock Addition', () => {
@@ -168,6 +196,40 @@ describe('Core Business Services (Products, Sales, Purchases, Ledger)', () => {
       expect(res.success).toBe(true);
       expect(res.payment.id).toMatch(/^PAY-/);
       expect(paymentService.getAll()).toHaveLength(1);
+    });
+
+    it('records excess payment as customer advance credit without over-allocating invoice balance', () => {
+      // Create a sale with ₹300 due
+      const saleData = {
+        customerName: 'Kavita Verma',
+        items: [
+          { productId: 1, name: 'Wireless Bluetooth Mouse', price: 1000, qty: 1 }
+        ],
+        paidAmount: 700, // ₹300 remaining due
+        paymentMethod: 'Cash'
+      };
+      const saleRes = salesService.createSale(saleData, 'Admin');
+      expect(saleRes.sale.dueAmount).toBe(300);
+
+      // Customer pays ₹500 (₹200 excess over the ₹300 due!)
+      const paymentRes = paymentService.recordPayment({
+        partyType: 'customer',
+        partyName: 'Kavita Verma',
+        amount: 500,
+        paymentMethod: 'UPI'
+      }, 'Admin');
+
+      expect(paymentRes.success).toBe(true);
+      // Invoice was allocated exactly ₹300 (not ₹500!)
+      expect(paymentRes.allocatedAmount).toBe(300);
+      // Excess ₹200 recorded as advance credit
+      expect(paymentRes.advanceAmount).toBe(200);
+
+      // Invoice status is now Paid and dueAmount is 0 (never negative!)
+      const updatedSale = salesService.getById(saleRes.sale.id);
+      expect(updatedSale.paidAmount).toBe(1000);
+      expect(updatedSale.dueAmount).toBe(0);
+      expect(updatedSale.status).toBe('Paid');
     });
   });
 });

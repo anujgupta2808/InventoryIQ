@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { useInventory } from '../context/InventoryContext';
 
 export const InventoryPage = () => {
@@ -47,30 +47,44 @@ export const InventoryPage = () => {
   };
   const [formData, setFormData] = useState(initialFormState);
 
-  // Filtered & Sorted Products
+  // Filtered & Sorted Products (Safe against undefined properties & malformed data)
   const filteredProducts = useMemo(() => {
+    const term = String(searchTerm || '').trim().toLowerCase();
     return products.filter(p => {
-      const matchSearch = p.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        p.sku.toLowerCase().includes(searchTerm.toLowerCase());
-      const matchCat = selectedCategory === 'All' || p.category === selectedCategory;
-      const matchStat = selectedStatus === 'All' || p.status === selectedStatus;
+      const pName = String(p?.name ?? '').toLowerCase();
+      const pSku = String(p?.sku ?? '').toLowerCase();
+      const matchSearch = !term || pName.includes(term) || pSku.includes(term);
+      const matchCat = selectedCategory === 'All' || p?.category === selectedCategory;
+      const matchStat = selectedStatus === 'All' || p?.status === selectedStatus;
       return matchSearch && matchCat && matchStat;
     }).sort((a, b) => {
       let valA = a[sortField];
       let valB = b[sortField];
-      if (typeof valA === 'string') {
-        return sortOrder === 'asc' ? valA.localeCompare(valB) : valB.localeCompare(valA);
+      if (typeof valA === 'string' || typeof valB === 'string') {
+        const sA = String(valA ?? '');
+        const sB = String(valB ?? '');
+        return sortOrder === 'asc' ? sA.localeCompare(sB) : sB.localeCompare(sA);
       }
-      return sortOrder === 'asc' ? (valA - valB) : (valB - valA);
+      const numA = Number(valA ?? 0);
+      const numB = Number(valB ?? 0);
+      return sortOrder === 'asc' ? (numA - numB) : (numB - numA);
     });
   }, [products, searchTerm, selectedCategory, selectedStatus, sortField, sortOrder]);
 
-  // Pagination
+  // Pagination with automatic boundary recalculation
   const totalPages = Math.ceil(filteredProducts.length / itemsPerPage) || 1;
+
+  useEffect(() => {
+    if (currentPage > totalPages) {
+      setCurrentPageNum(Math.max(1, totalPages));
+    }
+  }, [currentPage, totalPages]);
+
   const paginatedProducts = useMemo(() => {
-    const start = (currentPage - 1) * itemsPerPage;
+    const validPage = Math.min(currentPage, totalPages);
+    const start = (validPage - 1) * itemsPerPage;
     return filteredProducts.slice(start, start + itemsPerPage);
-  }, [filteredProducts, currentPage, itemsPerPage]);
+  }, [filteredProducts, currentPage, totalPages, itemsPerPage]);
 
   const handleSort = (field) => {
     if (sortField === field) {

@@ -72,18 +72,18 @@ export class PaymentService {
       const currentPaid = roundTo(Number(sale.paidAmount !== undefined ? sale.paidAmount : (sale.status === 'Completed' || sale.status === 'Paid' ? sale.amount : 0)));
       const currentDue = roundTo(Math.max(0, totalAmt - currentPaid));
 
-      if (payAmt > currentDue + 0.01) {
-        return { success: false, message: `Payment ₹${payAmt} exceeds invoice due amount ₹${currentDue}.` };
-      }
+      // Over-allocation handling: allocate up to currentDue to invoice; allocate remainder to customer advance
+      const invoicePayment = roundTo(Math.min(payAmt, currentDue));
+      const advanceAmount = roundTo(Math.max(0, payAmt - invoicePayment));
 
-      const newPaid = roundTo(Math.min(totalAmt, currentPaid + payAmt));
+      const newPaid = roundTo(currentPaid + invoicePayment);
       const newDue = roundTo(Math.max(0, totalAmt - newPaid));
       const newStatus = newDue <= 0 ? 'Paid' : (newPaid > 0 ? 'Partial' : 'Unpaid');
 
       const historyEntry = {
         id: paymentId,
         date: dateStr,
-        amount: payAmt,
+        amount: invoicePayment,
         method: paymentMethod,
         transactionRef,
         note: note || 'Payment received'
@@ -101,9 +101,10 @@ export class PaymentService {
         id: paymentId,
         partyType: 'CUSTOMER',
         partyName: sale.customerName || 'Customer',
+        customerId: sale.customerId || null,
         referenceType: 'SALE',
         referenceId: saleId,
-        amount: payAmt,
+        amount: invoicePayment,
         paymentMethod,
         transactionRef,
         note: note || `Payment for invoice #${saleId}`,
@@ -113,11 +114,33 @@ export class PaymentService {
       };
       storageService.insertItem(this.collectionName, paymentRecord);
 
+      // Record excess explicitly as customer advance/credit in ledger
+      let advanceRecord = null;
+      if (advanceAmount > 0) {
+        advanceRecord = {
+          id: `${paymentId}-ADV`,
+          partyType: 'CUSTOMER',
+          partyName: sale.customerName || 'Customer',
+          customerId: sale.customerId || null,
+          referenceType: 'ADVANCE',
+          referenceId: `ADV-${saleId}`,
+          amount: advanceAmount,
+          paymentMethod,
+          transactionRef,
+          note: `Customer advance/credit balance from overpayment on invoice #${saleId}`,
+          user,
+          date: dateStr,
+          createdAt: new Date().toISOString()
+        };
+        storageService.insertItem(this.collectionName, advanceRecord);
+      }
+
       return {
         success: true,
         paymentId,
         affectedSales: [saleId],
-        sale: { ...sale, paidAmount: newPaid, dueAmount: newDue, status: newStatus }
+        sale: { ...sale, paidAmount: newPaid, dueAmount: newDue, status: newStatus },
+        advance: advanceRecord
       };
     }
 
@@ -168,16 +191,22 @@ export class PaymentService {
 
       storageService.setCollection('SALES', updatedSales);
 
+      const allocatedToInvoices = roundTo(payAmt - remainingToAllocate);
+
       const paymentRecord = {
         id: paymentId,
         partyType: 'CUSTOMER',
         partyName: resolvedCustomer,
-        referenceType: 'CUSTOMER_LEDGER',
-        referenceId: affectedSales.join(', '),
+        referenceType: remainingToAllocate > 0 && affectedSales.length === 0 ? 'ADVANCE' : 'CUSTOMER_LEDGER',
+        referenceId: affectedSales.join(', ') || `ADV-${dateStr.replace(/[^0-9a-zA-Z]/g, '')}`,
         amount: payAmt,
+        allocatedAmount: allocatedToInvoices,
+        advanceAmount: remainingToAllocate,
         paymentMethod,
         transactionRef,
-        note: note || `Ledger payment allocated to ${affectedSales.length} invoice(s)`,
+        note: note || (remainingToAllocate > 0 && affectedSales.length > 0
+          ? `₹${allocatedToInvoices} applied to ${affectedSales.length} invoice(s), ₹${remainingToAllocate} recorded as customer advance`
+          : (remainingToAllocate > 0 ? `Customer advance payment: ₹${remainingToAllocate}` : `Payment applied to ${affectedSales.length} invoice(s)`)),
         user,
         date: dateStr,
         createdAt: new Date().toISOString()
@@ -188,6 +217,8 @@ export class PaymentService {
         success: true,
         paymentId,
         payment: paymentRecord,
+        allocatedAmount: allocatedToInvoices,
+        advanceAmount: remainingToAllocate,
         affectedSales
       };
     }

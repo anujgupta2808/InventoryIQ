@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useInventory } from '../../context/InventoryContext';
+import { isSupabaseConfigured } from '../../services/supabaseClient';
 
 export const ResetPasswordPage = () => {
   const {
@@ -24,8 +25,8 @@ export const ResetPasswordPage = () => {
     }
   }, [isAuthenticated, setCurrentPage]);
 
-  // Check if session is expired or invalid
-  const isSessionValid = Boolean(
+  // In production with Supabase, active recovery session is managed via Supabase Auth
+  const isSessionValid = isSupabaseConfigured() || Boolean(
     demoResetSession &&
     demoResetSession.email &&
     Date.now() <= (demoResetSession.expiresAt || 0)

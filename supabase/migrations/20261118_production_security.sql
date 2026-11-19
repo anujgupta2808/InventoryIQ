@@ -356,11 +356,21 @@ CREATE POLICY "Members can view team roster in their org"
     ON public.organization_members FOR SELECT
     USING (public.is_org_member(organization_id));
 
-CREATE POLICY "Owners and Admins can add or update members"
+CREATE POLICY "Owners and Admins can add members"
     ON public.organization_members FOR INSERT
     WITH CHECK (
         public.get_org_role(organization_id) IN ('owner', 'admin')
-        OR NOT EXISTS (SELECT 1 FROM public.organization_members WHERE organization_id = organization_id)
+        OR NOT EXISTS (
+            SELECT 1 FROM public.organization_members om
+            WHERE om.organization_id = organization_members.organization_id
+        )
+    );
+
+CREATE POLICY "Owners and Admins can update members"
+    ON public.organization_members FOR UPDATE
+    USING (
+        public.get_org_role(organization_id) = 'owner'
+        OR (public.get_org_role(organization_id) = 'admin' AND role IN ('manager', 'staff'))
     );
 
 CREATE POLICY "Owners can remove members, Admins can remove Manager/Staff"
@@ -386,7 +396,7 @@ CREATE POLICY "Authorized roles can update products"
     ON public.products FOR UPDATE
     USING (
         public.is_org_member(organization_id)
-        AND public.get_org_role(organization_id) IN ('owner', 'admin', 'manager', 'staff')
+        AND public.get_org_role(organization_id) IN ('owner', 'admin', 'manager')
     );
 
 CREATE POLICY "Only Owners and Admins can delete products"
@@ -463,11 +473,25 @@ CREATE POLICY "Org members can view customers"
     ON public.customers FOR SELECT
     USING (public.is_org_member(organization_id));
 
-CREATE POLICY "Authorized roles can manage customers"
-    ON public.customers FOR ALL
+CREATE POLICY "Authorized roles can insert customers"
+    ON public.customers FOR INSERT
+    WITH CHECK (
+        public.is_org_member(organization_id)
+        AND public.get_org_role(organization_id) IN ('owner', 'admin', 'manager')
+    );
+
+CREATE POLICY "Authorized roles can update customers"
+    ON public.customers FOR UPDATE
     USING (
         public.is_org_member(organization_id)
-        AND public.get_org_role(organization_id) IN ('owner', 'admin', 'manager', 'staff')
+        AND public.get_org_role(organization_id) IN ('owner', 'admin', 'manager')
+    );
+
+CREATE POLICY "Only Owners and Admins can delete customers"
+    ON public.customers FOR DELETE
+    USING (
+        public.is_org_member(organization_id)
+        AND public.get_org_role(organization_id) IN ('owner', 'admin')
     );
 
 CREATE POLICY "Org members can view suppliers"
@@ -527,3 +551,316 @@ CREATE POLICY "System can insert security events"
 CREATE POLICY "Users can view and manage their own sessions"
     ON public.user_sessions FOR ALL
     USING (auth.uid() = user_id);
+
+-- 13. Organization Invitations Policies
+CREATE POLICY "Org members can view invitations"
+    ON public.organization_invitations FOR SELECT
+    USING (public.is_org_member(organization_id));
+
+CREATE POLICY "Owners and Admins can create invitations"
+    ON public.organization_invitations FOR INSERT
+    WITH CHECK (
+        public.is_org_member(organization_id)
+        AND public.get_org_role(organization_id) IN ('owner', 'admin')
+    );
+
+CREATE POLICY "Owners and Admins can delete invitations"
+    ON public.organization_invitations FOR DELETE
+    USING (
+        public.is_org_member(organization_id)
+        AND public.get_org_role(organization_id) IN ('owner', 'admin')
+    );
+
+-- ============================================================================
+-- ROLE ESCALATION PREVENTION TRIGGER
+-- ============================================================================
+CREATE OR REPLACE FUNCTION public.prevent_role_escalation()
+RETURNS TRIGGER AS $$
+DECLARE
+    caller_role TEXT;
+    existing_count INT;
+BEGIN
+    -- Check how many members already belong to this organization
+    SELECT COUNT(*) INTO existing_count
+    FROM public.organization_members om
+    WHERE om.organization_id = NEW.organization_id;
+
+    -- Bootstrap: if organization has 0 members, assign first user as owner
+    IF existing_count = 0 THEN
+        NEW.role := 'owner';
+        RETURN NEW;
+    END IF;
+
+    -- Obtain caller role in the organization
+    SELECT role INTO caller_role
+    FROM public.organization_members om
+    WHERE om.organization_id = NEW.organization_id
+    AND om.user_id = auth.uid();
+
+    IF caller_role IS NULL THEN
+        RAISE EXCEPTION 'Access denied: Must be an authorized organization member.';
+    END IF;
+
+    IF caller_role NOT IN ('owner', 'admin') THEN
+        RAISE EXCEPTION 'Forbidden: Role "%" is not permitted to manage members.', caller_role;
+    END IF;
+
+    -- Admins cannot assign or alter owner role, nor create other admins
+    IF caller_role = 'admin' THEN
+        IF NEW.role IN ('owner', 'admin') THEN
+            RAISE EXCEPTION 'Forbidden: Administrators cannot assign owner or admin roles.';
+        END IF;
+        IF TG_OP = 'UPDATE' AND OLD.role IN ('owner', 'admin') THEN
+            RAISE EXCEPTION 'Forbidden: Administrators cannot modify owner or admin records.';
+        END IF;
+    END IF;
+
+    -- Only Owner can assign 'owner' role
+    IF NEW.role = 'owner' AND caller_role != 'owner' THEN
+        RAISE EXCEPTION 'Forbidden: Only the organization owner can grant the owner role.';
+    END IF;
+
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+DROP TRIGGER IF EXISTS trg_prevent_role_escalation ON public.organization_members;
+CREATE TRIGGER trg_prevent_role_escalation
+    BEFORE INSERT OR UPDATE ON public.organization_members
+    FOR EACH ROW EXECUTE FUNCTION public.prevent_role_escalation();
+
+-- ============================================================================
+-- ATOMIC SALE TRANSACTION FUNCTION
+-- Concurrency-Safe Stock Deduction, Duplicate Line Normalization & Ledger Sync
+-- ============================================================================
+CREATE OR REPLACE FUNCTION public.create_sale_atomic(
+    p_org_id UUID,
+    p_customer_name TEXT,
+    p_customer_phone TEXT,
+    p_customer_email TEXT,
+    p_customer_address TEXT,
+    p_customer_id UUID,
+    p_items JSONB,
+    p_discount NUMERIC,
+    p_tax_rate NUMERIC,
+    p_paid_amount NUMERIC,
+    p_payment_method TEXT
+)
+RETURNS JSONB AS $$
+DECLARE
+    v_caller_role TEXT;
+    v_sale_id UUID;
+    v_invoice_no TEXT;
+    v_item RECORD;
+    v_prod RECORD;
+    v_subtotal NUMERIC(14, 2) := 0;
+    v_cogs NUMERIC(14, 2) := 0;
+    v_taxable NUMERIC(14, 2);
+    v_tax NUMERIC(14, 2);
+    v_grand_total NUMERIC(14, 2);
+    v_paid NUMERIC(14, 2);
+    v_due NUMERIC(14, 2);
+    v_status TEXT;
+    v_now TIMESTAMPTZ := timezone('utc'::text, now());
+    v_agg_items JSONB := '[]'::JSONB;
+    v_sale_record RECORD;
+BEGIN
+    -- Verify organization membership
+    IF NOT public.is_org_member(p_org_id) THEN
+        RAISE EXCEPTION 'Access denied: User is not a member of organization %', p_org_id;
+    END IF;
+
+    v_caller_role := public.get_org_role(p_org_id);
+    IF v_caller_role NOT IN ('owner', 'admin', 'manager', 'staff') THEN
+        RAISE EXCEPTION 'Forbidden: Insufficient permissions to create sales';
+    END IF;
+
+    IF jsonb_array_length(p_items) = 0 THEN
+        RAISE EXCEPTION 'Validation error: Sale must contain at least one line item';
+    END IF;
+
+    -- Aggregate duplicate lines by product_id
+    CREATE TEMPORARY TABLE temp_sale_lines (
+        product_id UUID,
+        name TEXT,
+        qty NUMERIC(12, 2),
+        price NUMERIC(14, 2),
+        cost NUMERIC(14, 2),
+        gst_rate NUMERIC(5, 2)
+    ) ON COMMIT DROP;
+
+    FOR v_item IN SELECT * FROM jsonb_to_recordset(p_items) AS x(
+        "productId" UUID,
+        "name" TEXT,
+        "qty" NUMERIC,
+        "price" NUMERIC,
+        "cost" NUMERIC,
+        "gstRate" NUMERIC
+    ) LOOP
+        IF v_item."qty" <= 0 THEN
+            RAISE EXCEPTION 'Validation error: Item quantity must be positive';
+        END IF;
+
+        INSERT INTO temp_sale_lines (product_id, name, qty, price, cost, gst_rate)
+        VALUES (
+            v_item."productId",
+            COALESCE(v_item."name", 'Product'),
+            v_item."qty",
+            COALESCE(v_item."price", 0),
+            COALESCE(v_item."cost", 0),
+            COALESCE(v_item."gstRate", 0)
+        );
+    END LOOP;
+
+    -- Check available stock & lock rows FOR UPDATE
+    FOR v_item IN 
+        SELECT product_id, SUM(qty) AS total_qty, MAX(name) AS name, MAX(price) AS price, MAX(gst_rate) AS gst_rate
+        FROM temp_sale_lines
+        WHERE product_id IS NOT NULL
+        GROUP BY product_id
+    LOOP
+        SELECT id, name, stock, min_stock, cost_price, price
+        INTO v_prod
+        FROM public.products
+        WHERE id = v_item.product_id AND organization_id = p_org_id
+        FOR UPDATE;
+
+        IF NOT FOUND THEN
+            RAISE EXCEPTION 'Product % not found in organization', v_item.product_id;
+        END IF;
+
+        IF v_prod.stock < v_item.total_qty THEN
+            RAISE EXCEPTION 'Insufficient stock for "%". Available: %, Requested: %', v_prod.name, v_prod.stock, v_item.total_qty;
+        END IF;
+
+        -- Update item cost from authoritative catalog
+        UPDATE temp_sale_lines 
+        SET cost = v_prod.cost_price,
+            price = CASE WHEN price <= 0 THEN v_prod.price ELSE price END
+        WHERE product_id = v_item.product_id;
+
+        -- Compute server line totals
+        v_subtotal := v_subtotal + (v_item.price * v_item.total_qty);
+        v_cogs := v_cogs + (v_prod.cost_price * v_item.total_qty);
+
+        -- Deduct inventory atomically
+        UPDATE public.products
+        SET stock = stock - v_item.total_qty,
+            status = CASE 
+                WHEN (stock - v_item.total_qty) <= 0 THEN 'Out of Stock'
+                WHEN (stock - v_item.total_qty) <= min_stock THEN 'Low Stock'
+                ELSE 'In Stock'
+            END,
+            updated_at = v_now
+        WHERE id = v_item.product_id;
+    END LOOP;
+
+    -- Calculate server-authoritative totals
+    v_taxable := GREATEST(0, v_subtotal - COALESCE(p_discount, 0));
+    v_tax := ROUND((v_taxable * COALESCE(p_tax_rate, 0) / 100.0), 2);
+    v_grand_total := ROUND(v_taxable + v_tax, 2);
+
+    v_paid := LEAST(v_grand_total, GREATEST(0, COALESCE(p_paid_amount, 0)));
+    v_due := GREATEST(0, v_grand_total - v_paid);
+    v_status := CASE 
+        WHEN v_due <= 0 THEN 'Paid'
+        WHEN v_paid > 0 THEN 'Partial'
+        ELSE 'Unpaid'
+    END;
+
+    -- Generate sequential/collision-safe invoice number
+    v_invoice_no := 'INV-' || TO_CHAR(v_now, 'YYYYMMDD') || '-' || LPAD(FLOOR(RANDOM() * 9000 + 1000)::TEXT, 4, '0');
+
+    -- Insert sale
+    INSERT INTO public.sales (
+        organization_id, invoice_no, customer_id, customer_name, customer_phone,
+        customer_email, customer_address, subtotal, tax, discount, amount,
+        paid_amount, due_amount, status, payment_method, created_by, created_at
+    ) VALUES (
+        p_org_id, v_invoice_no, p_customer_id, COALESCE(p_customer_name, 'Walk-in Customer'),
+        p_customer_phone, p_customer_email, p_customer_address, v_subtotal, v_tax,
+        COALESCE(p_discount, 0), v_grand_total, v_paid, v_due, v_status,
+        COALESCE(p_payment_method, 'UPI'), auth.uid(), v_now
+    ) RETURNING id INTO v_sale_id;
+
+    -- Insert sale items
+    FOR v_item IN SELECT * FROM temp_sale_lines LOOP
+        INSERT INTO public.sale_items (
+            sale_id, product_id, name, qty, price, cost, gst_rate, total
+        ) VALUES (
+            v_sale_id, v_item.product_id, v_item.name, v_item.qty,
+            v_item.price, v_item.cost, v_item.gst_rate, ROUND(v_item.price * v_item.qty, 2)
+        );
+
+        -- Record stock movement
+        IF v_item.product_id IS NOT NULL THEN
+            INSERT INTO public.stock_movements (
+                organization_id, product_id, product_name, type, quantity,
+                previous_stock, new_stock, reference_id, reason, created_by, created_at
+            )
+            SELECT 
+                p_org_id, v_item.product_id, v_item.name, 'SALE', -v_item.qty,
+                p.stock + v_item.qty, p.stock, v_invoice_no, 'Sale Invoice #' || v_invoice_no,
+                auth.uid(), v_now
+            FROM public.products p
+            WHERE p.id = v_item.product_id;
+        END IF;
+    END LOOP;
+
+    -- Update customer ledger balance
+    IF p_customer_id IS NOT NULL THEN
+        UPDATE public.customers
+        SET total_billed = total_billed + v_grand_total,
+            total_received = total_received + v_paid,
+            current_due = current_due + v_due,
+            updated_at = v_now
+        WHERE id = p_customer_id AND organization_id = p_org_id;
+    END IF;
+
+    -- Record initial payment if applicable
+    IF v_paid > 0 THEN
+        INSERT INTO public.payments (
+            organization_id, party_type, party_name, reference_type,
+            reference_id, amount, payment_method, note, created_by, created_at
+        ) VALUES (
+            p_org_id, 'CUSTOMER', COALESCE(p_customer_name, 'Walk-in Customer'),
+            'SALE', v_invoice_no, v_paid, COALESCE(p_payment_method, 'UPI'),
+            'Initial payment for invoice #' || v_invoice_no, auth.uid(), v_now
+        );
+    END IF;
+
+    -- Insert immutable audit log
+    INSERT INTO public.audit_logs (
+        organization_id, user_id, user_name, user_role, action, details, status, created_at
+    ) VALUES (
+        p_org_id, auth.uid(), COALESCE(p_customer_name, 'Staff'), v_caller_role,
+        'SALE_CREATED', 'Created Invoice #' || v_invoice_no || ' for ' || v_grand_total,
+        'Success', v_now
+    );
+
+    RETURN jsonb_build_object(
+        'success', true,
+        'saleId', v_sale_id,
+        'invoiceNo', v_invoice_no,
+        'grandTotal', v_grand_total,
+        'paidAmount', v_paid,
+        'dueAmount', v_due,
+        'status', v_status,
+        'cogs', v_cogs
+    );
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+-- ============================================================================
+-- PERFORMANCE & COMPOSITE DATABASE INDEXES
+-- ============================================================================
+CREATE INDEX IF NOT EXISTS idx_products_org_sku ON public.products (organization_id, sku);
+CREATE INDEX IF NOT EXISTS idx_products_org_status ON public.products (organization_id, status);
+CREATE INDEX IF NOT EXISTS idx_sales_org_created ON public.sales (organization_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_sales_org_cust ON public.sales (organization_id, customer_id);
+CREATE INDEX IF NOT EXISTS idx_purchases_org_created ON public.purchases (organization_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_purchases_org_supp ON public.purchases (organization_id, supplier_id);
+CREATE INDEX IF NOT EXISTS idx_payments_org_ref ON public.payments (organization_id, reference_type, reference_id);
+CREATE INDEX IF NOT EXISTS idx_stock_movements_org_prod ON public.stock_movements (organization_id, product_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_audit_logs_org_created ON public.audit_logs (organization_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_user_sessions_user_active ON public.user_sessions (user_id, is_revoked, last_active_at DESC);

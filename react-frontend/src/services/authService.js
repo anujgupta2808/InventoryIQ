@@ -207,7 +207,14 @@ export class AuthService {
       }
     }
 
-    // 2. DEMO CLIENT-SIDE MODE (PBKDF2 Web Crypto)
+    // 2. DEMO CLIENT-SIDE MODE (Only allowed in Development / Unit Testing)
+    if (import.meta.env.PROD) {
+      return {
+        success: false,
+        message: 'Authentication service unavailable: Production Supabase database connection is not configured.'
+      };
+    }
+
     const allUsers = this.getStoredUsers();
     const matchedUser = allUsers.find(u => u.email && u.email.toLowerCase() === cleanEmail);
 
@@ -380,7 +387,14 @@ export class AuthService {
       }
     }
 
-    // 2. DEMO REGISTRATION (PBKDF2 Web Crypto)
+    // 2. DEMO REGISTRATION (Only allowed in Development / Unit Testing)
+    if (import.meta.env.PROD) {
+      return {
+        success: false,
+        message: 'Registration service unavailable: Production Supabase database connection is not configured.'
+      };
+    }
+
     const allUsers = this.getStoredUsers();
     const exists = allUsers.some(u => u.email && u.email.toLowerCase() === cleanEmail);
     if (exists) {
@@ -415,7 +429,7 @@ export class AuthService {
   }
 
   /**
-   * Password Reset Request
+   * Secure Password Reset Request (Supabase Auth / Non-Enumerating Generic Response)
    */
   async requestPasswordReset(email) {
     const cleanEmail = String(email || '').trim().toLowerCase();
@@ -425,32 +439,36 @@ export class AuthService {
 
     if (isSupabaseConfigured()) {
       try {
-        const { error } = await supabase.auth.resetPasswordForEmail(cleanEmail, {
-          redirectTo: window.location.origin
+        const redirectUrl = typeof window !== 'undefined'
+          ? `${window.location.origin}${window.location.pathname}#/reset-password`
+          : undefined;
+
+        await supabase.auth.resetPasswordForEmail(cleanEmail, {
+          redirectTo: redirectUrl
         });
-        if (error) throw error;
-        return { success: true, message: 'Password recovery email sent. Please check your inbox.' };
       } catch (err) {
-        return { success: false, message: err.message || 'Failed to send recovery email.' };
+        // Suppress backend error to prevent email enumeration attacks
       }
+
+      // Always return uniform generic response (OWASP Anti-Enumeration Principle)
+      return {
+        success: true,
+        message: 'If an account exists with this email, password reset instructions have been sent.'
+      };
     }
 
-    const allUsers = this.getStoredUsers();
-    const matched = allUsers.find(u => u.email && u.email.toLowerCase() === cleanEmail);
-    if (!matched) {
-      return { success: false, message: `No registered account found for "${cleanEmail}" in the demo store.` };
+    if (import.meta.env.PROD) {
+      return {
+        success: false,
+        message: 'Password recovery unavailable: Production database connection is not configured.'
+      };
     }
 
-    const resetToken = 'demo_rst_' + Math.random().toString(36).substring(2, 10) + Date.now().toString(36);
-    const session = {
-      email: cleanEmail,
-      token: resetToken,
-      accountName: matched.name,
-      createdAt: Date.now(),
-      expiresAt: Date.now() + 15 * 60 * 1000
+    // Development/Test mock flow: Generic non-enumerating response
+    return {
+      success: true,
+      message: 'If an account exists with this email, password reset instructions have been sent.'
     };
-
-    return { success: true, session };
   }
 
   /**

@@ -7,10 +7,11 @@
 import { storageService } from './storageService.js';
 import { generateInvoiceNumber } from '../utils/invoiceGenerator.js';
 import { validateSale } from '../utils/validators.js';
-import { calculateSaleTotals, roundTo } from '../utils/calculations.js';
+import { calculateSaleTotals, aggregateSaleItems, roundTo } from '../utils/calculations.js';
 import { inventoryService } from './inventoryService.js';
 import { customerService } from './customerService.js';
 import { paymentService } from './paymentService.js';
+import { supabase, isSupabaseConfigured } from './supabaseClient.js';
 
 export class SalesService {
   constructor() {
@@ -25,26 +26,32 @@ export class SalesService {
     return storageService.getItemById(this.collectionName, id);
   }
 
-  createSale(saleData, user = 'Admin') {
+  createSale(saleData, user = 'Admin', organizationId = null) {
     const products = storageService.getCollection('PRODUCTS');
     const existingSales = this.getAll();
 
+    // 1. Normalize duplicate product lines to prevent stock deduction glitches
+    const rawItems = Array.isArray(saleData.items) ? saleData.items : [];
+    const normalizedItems = aggregateSaleItems(rawItems);
+
+    // 2. Server-authoritative totals (never trust client total)
     const totals = calculateSaleTotals(
-      saleData.items || [],
+      normalizedItems,
       saleData.discount || 0,
       saleData.taxRate || 0
     );
+    const saleAmount = totals.amount;
 
-    const saleAmount = saleData.amount !== undefined ? Number(saleData.amount) : totals.amount;
     const saleToValidate = {
       ...saleData,
+      items: normalizedItems,
       amount: saleAmount,
-      subtotal: saleData.subtotal !== undefined ? Number(saleData.subtotal) : totals.subtotal,
-      tax: saleData.tax !== undefined ? Number(saleData.tax) : totals.tax,
-      discount: saleData.discount !== undefined ? Number(saleData.discount) : totals.discount
+      subtotal: totals.subtotal,
+      tax: totals.tax,
+      discount: totals.discount
     };
 
-    // 1. Validation
+    // 3. Strict Validation
     const validation = validateSale(saleToValidate, products);
     if (!validation.isValid) {
       return { success: false, errors: validation.errors };
@@ -60,23 +67,29 @@ export class SalesService {
     const now = new Date();
     const dateStr = now.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
 
-    // Snapshot of previous product stock for safe rollback
+    // Snapshot of previous product stock for safe atomic rollback
     const previousProductSnapshot = JSON.parse(JSON.stringify(products));
 
     try {
-      // 2. Atomic Stock Deduction
+      let totalCogs = 0;
+
+      // 4. Atomic Stock Deduction using aggregated quantities
       const updatedProducts = products.map(p => {
-        const line = saleData.items.find(i => Number(i.productId) === p.id);
+        const line = normalizedItems.find(i => String(i.productId) === String(p.id));
         if (line) {
           const qty = Number(line.qty) || 0;
-          const newStock = p.stock - qty;
+          const newStock = roundTo(p.stock - qty, 2);
           if (newStock < 0) {
-            throw new Error(`Negative stock prohibited for product "${p.name}".`);
+            throw new Error(`Negative stock prohibited for product "${p.name}". Required: ${qty}, Available: ${p.stock}`);
           }
           const minStock = Number(p.minStock) || 0;
           const status = newStock <= 0 ? 'Out of Stock' : (newStock <= minStock ? 'Low Stock' : 'In Stock');
 
-          // Record stock movement
+          // Track COGS: quantity * cost_at_sale
+          const unitCost = Number(p.costPrice || 0);
+          totalCogs += unitCost * qty;
+
+          // Record immutable stock movement
           inventoryService.recordMovement({
             productId: p.id,
             productName: p.name,
@@ -94,23 +107,38 @@ export class SalesService {
         return p;
       });
 
-      // Save updated products
+      // Save updated products atomically
       storageService.setCollection('PRODUCTS', updatedProducts);
 
-      // 3. Payment history
+      // 5. Enrich line items with cost_at_sale for COGS accounting
+      const enrichedItems = normalizedItems.map(item => {
+        const matchedProd = products.find(p => String(p.id) === String(item.productId));
+        const unitCost = matchedProd ? Number(matchedProd.costPrice || 0) : Number(item.cost || item.costPrice || 0);
+        return {
+          ...item,
+          cost: unitCost,
+          costPrice: unitCost,
+          cost_at_sale: unitCost
+        };
+      });
+
+      // 6. Payment history
       const paymentHistory = [];
       if (paidAmount > 0) {
+        const paymentRecordId = `PAY-${Date.now().toString().slice(-6)}`;
         paymentHistory.push({
-          id: `PAY-${Date.now().toString().slice(-6)}`,
+          id: paymentRecordId,
           date: dateStr,
           amount: paidAmount,
           method: saleData.paymentMethod || 'UPI',
           note: 'Initial payment at invoice creation'
         });
 
-        // Record in central payments
+        // Record in central payments ledger
         paymentService.recordPayment({
           saleId: newSaleId,
+          customerId: saleData.customerId || null,
+          customerName: saleData.customerName || 'Walk-in Customer',
           amount: paidAmount,
           paymentMethod: saleData.paymentMethod || 'UPI',
           note: `Initial invoice payment #${newSaleId}`,
@@ -118,7 +146,7 @@ export class SalesService {
         });
       }
 
-      // 4. Assemble Sale Invoice
+      // 7. Assemble Complete Sale Invoice
       const newSale = {
         id: newSaleId,
         date: dateStr,
@@ -127,7 +155,7 @@ export class SalesService {
         customerPhone: (saleData.customerPhone || '').trim(),
         customerEmail: (saleData.customerEmail || '').trim(),
         customerAddress: (saleData.customerAddress || '').trim(),
-        items: saleData.items || [],
+        items: enrichedItems,
         subtotal: totals.subtotal,
         tax: totals.tax,
         discount: totals.discount,
@@ -136,28 +164,28 @@ export class SalesService {
         dueAmount,
         status: paymentStatus,
         paymentMethod: saleData.paymentMethod || 'UPI',
+        cogs: roundTo(totalCogs),
         paymentHistory,
         createdAt: now.toISOString()
       };
 
-      // 5. Save sale
+      // 8. Save sale in storage
       storageService.insertItem(this.collectionName, newSale);
 
-      // 6. Sync Customer ledger
+      // 9. Sync Customer ledger
       customerService.syncFromSale(newSale);
 
       return {
         success: true,
-        sale: newSale,
-        products: updatedProducts
+        sale: newSale
       };
     } catch (err) {
-      // Rollback to previous product state
+      // Atomic Rollback on any failure
       storageService.setCollection('PRODUCTS', previousProductSnapshot);
-      console.error('Sale transaction failed, rolled back:', err);
+      console.error('Sale transaction rolled back:', err);
       return {
         success: false,
-        errors: [err.message || 'Transaction failed. Stock changes rolled back.']
+        errors: [err.message || 'Sale transaction failed. All changes rolled back.']
       };
     }
   }

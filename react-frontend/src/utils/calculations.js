@@ -14,73 +14,100 @@ export const roundTo = (num, decimals = 2) => {
 export const toPaise = (amount) => Math.round(Number(amount || 0) * 100);
 export const fromPaise = (paise) => Math.round(Number(paise || 0)) / 100;
 
+/**
+ * Normalizes sale line items by consolidating duplicate product lines
+ * to prevent stock deduction glitches and concurrency bugs.
+ */
+export const aggregateSaleItems = (items = []) => {
+  if (!Array.isArray(items)) return [];
+  const map = new Map();
+  items.forEach(item => {
+    const key = item.productId 
+      ? String(item.productId) 
+      : `item_${String(item.name || '').trim().toLowerCase()}`;
+    const qty = Number(item.qty) || 0;
+    if (map.has(key)) {
+      const existing = map.get(key);
+      existing.qty = roundTo(existing.qty + qty, 2);
+    } else {
+      map.set(key, { ...item, qty });
+    }
+  });
+  return Array.from(map.values());
+};
+
 export const calculateItemTotal = (price, qty, gstRate = 0, discountPercent = 0) => {
-  const p = Number(price) || 0;
+  const pricePaise = toPaise(price);
   const q = Number(qty) || 0;
-  const rawSubtotal = p * q;
-  const discountAmount = rawSubtotal * (Number(discountPercent) / 100);
-  const taxableAmount = Math.max(0, rawSubtotal - discountAmount);
-  const gstAmount = taxableAmount * (Number(gstRate) / 100);
-  const total = taxableAmount + gstAmount;
+  const rawSubtotalPaise = Math.round(pricePaise * q);
+  const discountPaise = Math.round(rawSubtotalPaise * (Number(discountPercent || 0) / 100));
+  const taxablePaise = Math.max(0, rawSubtotalPaise - discountPaise);
+  const gstPaise = Math.round(taxablePaise * (Number(gstRate || 0) / 100));
+  const totalPaise = taxablePaise + gstPaise;
 
   return {
-    rawSubtotal: roundTo(rawSubtotal),
-    discountAmount: roundTo(discountAmount),
-    taxableAmount: roundTo(taxableAmount),
-    gstAmount: roundTo(gstAmount),
-    total: roundTo(total)
+    rawSubtotal: fromPaise(rawSubtotalPaise),
+    discountAmount: fromPaise(discountPaise),
+    taxableAmount: fromPaise(taxablePaise),
+    gstAmount: fromPaise(gstPaise),
+    total: fromPaise(totalPaise),
+    totalPaise
   };
 };
 
 export const calculateSaleTotals = (items = [], overallDiscount = 0, taxRate = 0) => {
-  let subtotal = 0;
-  let totalGst = 0;
+  let subtotalPaise = 0;
+  let totalGstPaise = 0;
 
   items.forEach(item => {
     const p = Number(item.price) || 0;
     const q = Number(item.qty) || 0;
-    const gst = Number(item.gstRate || taxRate || 0);
+    const gst = Number(item.gstRate !== undefined ? item.gstRate : (taxRate || 0));
     const itemCalc = calculateItemTotal(p, q, gst, item.discount || 0);
-    subtotal += itemCalc.taxableAmount;
-    totalGst += itemCalc.gstAmount;
+    subtotalPaise += toPaise(itemCalc.taxableAmount);
+    totalGstPaise += toPaise(itemCalc.gstAmount);
   });
 
-  const disc = Number(overallDiscount) || 0;
-  const finalSubtotal = Math.max(0, subtotal - disc);
-  const grandTotal = roundTo(finalSubtotal + totalGst);
+  const discPaise = toPaise(overallDiscount);
+  const finalSubtotalPaise = Math.max(0, subtotalPaise - discPaise);
+  const grandTotalPaise = finalSubtotalPaise + totalGstPaise;
 
   return {
-    subtotal: roundTo(subtotal),
-    discount: roundTo(disc),
-    tax: roundTo(totalGst),
-    amount: grandTotal
+    subtotal: fromPaise(subtotalPaise),
+    discount: fromPaise(discPaise),
+    tax: fromPaise(totalGstPaise),
+    amount: fromPaise(grandTotalPaise),
+    amountPaise: grandTotalPaise
   };
 };
 
 export const calculatePurchaseTotals = (items = [], taxRate = 0) => {
-  let subtotal = 0;
-  let tax = 0;
+  let subtotalPaise = 0;
+  let taxPaise = 0;
 
   items.forEach(item => {
-    const cost = Number(item.cost || item.price) || 0;
+    const cost = Number(item.cost !== undefined ? item.cost : item.price) || 0;
     const qty = Number(item.qty) || 0;
-    const rate = Number(item.gstRate || taxRate || 0);
-    const itemTotal = cost * qty;
-    const itemTax = itemTotal * (rate / 100);
-    subtotal += itemTotal;
-    tax += itemTax;
+    const rate = Number(item.gstRate !== undefined ? item.gstRate : (taxRate || 0));
+    const itemTotalPaise = Math.round(toPaise(cost) * qty);
+    const itemTaxPaise = Math.round(itemTotalPaise * (rate / 100));
+    subtotalPaise += itemTotalPaise;
+    taxPaise += itemTaxPaise;
   });
 
+  const grandTotalPaise = subtotalPaise + taxPaise;
+
   return {
-    subtotal: roundTo(subtotal),
-    tax: roundTo(tax),
-    amount: roundTo(subtotal + tax)
+    subtotal: fromPaise(subtotalPaise),
+    tax: fromPaise(taxPaise),
+    amount: fromPaise(grandTotalPaise),
+    amountPaise: grandTotalPaise
   };
 };
 
 export const calculateStockValuation = (products = []) => {
-  let costValuation = 0;
-  let sellingValuation = 0;
+  let costValuationPaise = 0;
+  let sellingValuationPaise = 0;
   let totalUnits = 0;
   let lowStockCount = 0;
   let outOfStockCount = 0;
@@ -88,12 +115,12 @@ export const calculateStockValuation = (products = []) => {
   products.forEach(p => {
     const stock = Number(p.stock) || 0;
     const minStock = Number(p.minStock) || 0;
-    const cost = Number(p.costPrice) || 0;
-    const price = Number(p.price) || 0;
+    const costPaise = toPaise(p.costPrice);
+    const pricePaise = toPaise(p.price);
 
     totalUnits += stock;
-    costValuation += stock * cost;
-    sellingValuation += stock * price;
+    costValuationPaise += Math.round(stock * costPaise);
+    sellingValuationPaise += Math.round(stock * pricePaise);
 
     if (stock <= 0) {
       outOfStockCount++;
@@ -102,27 +129,51 @@ export const calculateStockValuation = (products = []) => {
     }
   });
 
-  const potentialProfit = Math.max(0, sellingValuation - costValuation);
+  const potentialProfitPaise = Math.max(0, sellingValuationPaise - costValuationPaise);
 
   return {
-    costValuation: roundTo(costValuation),
-    sellingValuation: roundTo(sellingValuation),
-    potentialProfit: roundTo(potentialProfit),
+    costValuation: fromPaise(costValuationPaise),
+    sellingValuation: fromPaise(sellingValuationPaise),
+    potentialProfit: fromPaise(potentialProfitPaise),
     totalUnits,
     lowStockCount,
     outOfStockCount
   };
 };
 
+/**
+ * Calculates Gross Profit using GAAP/IFRS standard:
+ * Gross Profit = Revenue - COGS (Cost of Goods Sold)
+ * Tracks actual cost_at_sale for historical accuracy.
+ */
 export const calculateGrossProfit = (sales = [], purchases = []) => {
   const totalRevenue = sales.reduce((sum, s) => sum + (Number(s.amount) || 0), 0);
   const totalExpenditure = purchases.reduce((sum, p) => sum + (Number(p.amount) || 0), 0);
-  const estimatedProfit = Math.max(0, totalRevenue - totalExpenditure);
+
+  // Compute COGS: Sum of (item.qty * cost_at_sale) across all sold items
+  let totalCOGS = 0;
+  let hasItemCosts = false;
+
+  sales.forEach(s => {
+    if (Array.isArray(s.items) && s.items.length > 0) {
+      s.items.forEach(item => {
+        const cost = Number(item.cost !== undefined ? item.cost : (item.costPrice || 0));
+        const qty = Number(item.qty) || 0;
+        if (cost > 0) hasItemCosts = true;
+        totalCOGS += cost * qty;
+      });
+    }
+  });
+
+  // If sale line items had cost details, use COGS; otherwise fall back to purchases expenditure
+  const effectiveCost = hasItemCosts ? totalCOGS : totalExpenditure;
+  const grossProfit = Math.max(0, totalRevenue - effectiveCost);
 
   return {
     revenue: roundTo(totalRevenue),
+    cogs: roundTo(totalCOGS),
     expenditure: roundTo(totalExpenditure),
-    profit: roundTo(estimatedProfit)
+    profit: roundTo(grossProfit)
   };
 };
 

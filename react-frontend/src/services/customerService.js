@@ -152,8 +152,45 @@ export class CustomerService {
 
     return {
       sales: customerSales,
+      payments: payments.filter(p => 
+        p.partyType === 'CUSTOMER' && 
+        (String(p.partyName || '').trim().toLowerCase() === target || String(p.customerId) === target)
+      ),
       balances
     };
+  }
+
+  reconcileBalances() {
+    const sales = storageService.getCollection('SALES');
+    const payments = storageService.getCollection('PAYMENTS');
+    const customers = this.getAll();
+
+    const reconciled = customers.map(c => {
+      const matchSales = sales.filter(s =>
+        (s.customerId && String(s.customerId) === String(c.id)) ||
+        (s.customerName && String(s.customerName).trim().toLowerCase() === String(c.name).trim().toLowerCase())
+      );
+      const matchPayments = payments.filter(p =>
+        p.partyType === 'CUSTOMER' && (
+          (p.customerId && String(p.customerId) === String(c.id)) ||
+          (p.partyName && String(p.partyName).trim().toLowerCase() === String(c.name).trim().toLowerCase())
+        )
+      );
+
+      const totalBilled = matchSales.reduce((sum, s) => sum + (Number(s.amount) || 0), 0);
+      const totalReceived = matchPayments.reduce((sum, p) => sum + (Number(p.amount) || 0), 0);
+      const currentDue = Math.max(0, totalBilled - totalReceived);
+
+      return {
+        ...c,
+        totalBilled: Number(totalBilled.toFixed(2)),
+        totalReceived: Number(totalReceived.toFixed(2)),
+        currentDue: Number(currentDue.toFixed(2))
+      };
+    });
+
+    storageService.setCollection(this.collectionName, reconciled);
+    return reconciled;
   }
 }
 

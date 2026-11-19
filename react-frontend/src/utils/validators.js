@@ -32,18 +32,25 @@ export const isValidPassword = (password) => {
 };
 
 export const isNonNegativeNumber = (val) => {
+  if (val === null || val === undefined || val === '') return false;
   const num = Number(val);
   return !isNaN(num) && isFinite(num) && num >= 0;
 };
 
 export const isPositiveNumber = (val) => {
+  if (val === null || val === undefined || val === '') return false;
   const num = Number(val);
   return !isNaN(num) && isFinite(num) && num > 0;
 };
 
 export const validateProduct = (product, existingProducts = []) => {
   const errors = [];
-  if (!product.name || !String(product.name).trim()) {
+  if (!product || typeof product !== 'object') {
+    return { isValid: false, errors: ['Invalid product record.'] };
+  }
+
+  const cleanName = String(product.name || '').trim();
+  if (!cleanName) {
     errors.push('Product name is required.');
   }
 
@@ -52,7 +59,7 @@ export const validateProduct = (product, existingProducts = []) => {
     errors.push('SKU is required.');
   } else {
     const duplicate = existingProducts.find(
-      p => p.sku && p.sku.toLowerCase() === cleanSku.toLowerCase() && p.id !== product.id
+      p => p.sku && String(p.sku).trim().toLowerCase() === cleanSku.toLowerCase() && String(p.id) !== String(product.id)
     );
     if (duplicate) {
       errors.push(`SKU "${cleanSku}" is already assigned to "${duplicate.name}".`);
@@ -61,6 +68,10 @@ export const validateProduct = (product, existingProducts = []) => {
 
   if (!isNonNegativeNumber(product.stock)) {
     errors.push('Stock quantity must be a non-negative number.');
+  }
+
+  if (product.minStock !== undefined && !isNonNegativeNumber(product.minStock)) {
+    errors.push('Minimum stock must be a non-negative number.');
   }
 
   if (!isNonNegativeNumber(product.price)) {
@@ -79,25 +90,41 @@ export const validateProduct = (product, existingProducts = []) => {
 
 export const validateSale = (sale, existingProducts = []) => {
   const errors = [];
-  if (!sale.items || !Array.isArray(sale.items) || sale.items.length === 0) {
+  if (!sale || !sale.items || !Array.isArray(sale.items) || sale.items.length === 0) {
     errors.push('Sale must contain at least one product line item.');
     return { isValid: false, errors };
   }
 
+  // Aggregate quantities by product ID to detect stock exhaustion across duplicate lines
+  const aggregatedQuantities = new Map();
+
   sale.items.forEach((item, index) => {
     const qty = Number(item.qty);
-    if (!qty || qty <= 0) {
+    if (!isPositiveNumber(qty)) {
       errors.push(`Item #${index + 1} (${item.name || 'Unknown'}) has an invalid quantity.`);
     }
 
-    // Check stock availability
-    if (item.productId && existingProducts.length > 0) {
-      const prod = existingProducts.find(p => p.id === Number(item.productId));
-      if (prod && prod.stock < qty) {
-        errors.push(`Insufficient stock for "${prod.name}". Available: ${prod.stock}, Requested: ${qty}.`);
-      }
+    if (item.productId) {
+      const pKey = String(item.productId);
+      const prev = aggregatedQuantities.get(pKey) || { qty: 0, name: item.name || 'Product' };
+      aggregatedQuantities.set(pKey, {
+        qty: prev.qty + (Number(item.qty) || 0),
+        name: item.name || prev.name
+      });
     }
   });
+
+  // Check stock against aggregated quantities
+  if (existingProducts.length > 0) {
+    for (const [prodId, data] of aggregatedQuantities.entries()) {
+      const prod = existingProducts.find(p => String(p.id) === String(prodId));
+      if (prod) {
+        if (Number(prod.stock) < data.qty) {
+          errors.push(`Insufficient stock for "${prod.name}". Available: ${prod.stock}, Total Requested: ${data.qty}.`);
+        }
+      }
+    }
+  }
 
   const amount = Number(sale.amount);
   if (!isNonNegativeNumber(amount)) {

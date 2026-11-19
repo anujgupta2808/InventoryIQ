@@ -23,7 +23,7 @@ export const ForgotPasswordPage = () => {
     }
   }, [isAuthenticated, setCurrentPage]);
 
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault();
     setErrorMessage('');
 
@@ -47,17 +47,14 @@ export const ForgotPasswordPage = () => {
     }
 
     setLoading(true);
-    setTimeout(() => {
-      const res = requestPasswordReset(cleanEmail);
+    try {
+      const res = await requestPasswordReset(cleanEmail);
       setLoading(false);
-
-      if (!res.success) {
-        setErrorMessage(res.message || 'No registered account found with this email in the demo store.');
-      } else {
-        setRecoveryDetails(res.session);
-        setSubmitted(true);
-      }
-    }, 200);
+      setSubmitted(true);
+    } catch (err) {
+      setLoading(false);
+      setSubmitted(true);
+    }
   };
 
   return (
@@ -95,56 +92,38 @@ export const ForgotPasswordPage = () => {
               <i className="bi bi-envelope-check-fill"></i>
             </div>
 
-            <h5 className="text-white fw-bold mb-2">Simulated Recovery Active</h5>
+            <h5 className="text-white fw-bold mb-2">Instructions Sent</h5>
 
-            {/* Explicit Demo Notification as required by prompt */}
-            <div className="p-3 mb-3 rounded border border-warning border-opacity-50 text-start" style={{ background: 'rgba(245, 185, 66, 0.1)' }}>
-              <div className="fw-semibold text-gold small mb-1">
-                <i className="bi bi-info-circle-fill me-1"></i>Demo Mode Recovery
-              </div>
-              <p className="text-white small mb-2">
-                "Demo mode: Password recovery is simulated. No email has been sent."
+            <div className="p-3 mb-4 rounded border border-secondary border-opacity-50 text-start" style={{ background: 'rgba(255, 255, 255, 0.04)' }}>
+              <p className="text-secondary small mb-0">
+                If an account exists with this email address, password recovery instructions have been sent. Please check your inbox and click the recovery link to set a new password.
               </p>
-              <div className="small text-secondary">
-                Account Target: <strong className="text-white">{recoveryDetails?.email || email}</strong>
-                {recoveryDetails?.accountName && <span> ({recoveryDetails.accountName})</span>}
-              </div>
-              <div className="small text-secondary mt-1">
-                Session token active (Expires in 15 minutes).
-              </div>
             </div>
 
-            <div className="d-flex flex-column gap-2">
-              <button
-                type="button"
-                className="btn-gold w-100 py-2 fw-semibold d-flex align-items-center justify-content-center gap-2"
-                onClick={() => setCurrentPage('reset-password')}
-              >
-                <span>Proceed to Set New Password</span>
-                <i className="bi bi-arrow-right"></i>
-              </button>
-              <button
-                type="button"
-                className="btn btn-outline-secondary w-100"
-                onClick={() => setCurrentPage('login')}
-              >
-                Back to Sign In
-              </button>
-            </div>
+            <button
+              type="button"
+              className="btn btn-gold w-100 py-2 d-flex align-items-center justify-content-center gap-2"
+              onClick={() => setCurrentPage('login')}
+            >
+              <i className="bi bi-arrow-left"></i>
+              <span>Back to Sign In</span>
+            </button>
           </div>
         ) : (
           <form onSubmit={handleSubmit} noValidate>
             <div className="mb-4">
               <div className="d-flex justify-content-between align-items-center mb-1">
                 <label className="form-label mb-0" htmlFor="resetEmail">Registered Email *</label>
-                <button
-                  type="button"
-                  className="btn btn-link p-0 text-gold text-decoration-none"
-                  style={{ fontSize: '0.75rem' }}
-                  onClick={handleFillDemo}
-                >
-                  Use Demo Admin Email
-                </button>
+                {!import.meta.env.PROD && (
+                  <button
+                    type="button"
+                    className="btn btn-link p-0 text-gold text-decoration-none"
+                    style={{ fontSize: '0.75rem' }}
+                    onClick={handleFillDemo}
+                  >
+                    Use Demo Admin Email
+                  </button>
+                )}
               </div>
               <div className="input-icon-group">
                 <i className="bi bi-envelope input-icon-left"></i>

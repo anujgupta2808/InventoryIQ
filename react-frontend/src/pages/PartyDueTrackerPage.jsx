@@ -102,9 +102,11 @@ export const PartyDueTrackerPage = () => {
 
   // Filtered List
   const filteredLedgers = useMemo(() => {
+    const term = String(searchTerm || '').trim().toLowerCase();
     return personLedgers.filter(p => {
-      const matchSearch = p.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        p.phone.toLowerCase().includes(searchTerm.toLowerCase());
+      const pName = String(p?.name ?? '').toLowerCase();
+      const pPhone = String(p?.phone ?? '').toLowerCase();
+      const matchSearch = !term || pName.includes(term) || pPhone.includes(term);
       if (!matchSearch) return false;
       if (filterType === 'due_only') return p.totalDue > 0;
       if (filterType === 'settled_only') return p.totalDue <= 0;

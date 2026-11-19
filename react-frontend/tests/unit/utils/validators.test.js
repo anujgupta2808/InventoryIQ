@@ -142,6 +142,19 @@ describe('Input Validators & Business Integrity Rules', () => {
       expect(res.isValid).toBe(false);
       expect(res.errors[0]).toMatch(/Insufficient stock/i);
     });
+
+    it('aggregates duplicate product lines and rejects when combined quantity exceeds stock', () => {
+      // Stock is 2. Line 1 requests 2, Line 2 requests 1. Individually <= 2, combined = 3 > 2!
+      const res = validateSale({
+        items: [
+          { productId: 10, name: 'Monitor', qty: 2, price: 8000 },
+          { productId: 10, name: 'Monitor', qty: 1, price: 8000 }
+        ],
+        amount: 24000
+      }, products);
+      expect(res.isValid).toBe(false);
+      expect(res.errors[0]).toMatch(/Insufficient stock for "Monitor".*Available: 2/i);
+    });
   });
 
   describe('validatePayment', () => {

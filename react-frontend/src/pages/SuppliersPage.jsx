@@ -26,12 +26,15 @@ export const SuppliersPage = () => {
   };
   const [formData, setFormData] = useState(initialForm);
 
-  const filteredSuppliers = suppliers.filter(s =>
-    s.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    s.contactPerson?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    s.email.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    s.phone.includes(searchTerm)
-  );
+  const filteredSuppliers = suppliers.filter(s => {
+    const term = String(searchTerm || '').trim().toLowerCase();
+    if (!term) return true;
+    const sName = String(s?.name ?? '').toLowerCase();
+    const sContact = String(s?.contactPerson ?? '').toLowerCase();
+    const sEmail = String(s?.email ?? '').toLowerCase();
+    const sPhone = String(s?.phone ?? '');
+    return sName.includes(term) || sContact.includes(term) || sEmail.includes(term) || sPhone.includes(term);
+  });
 
   const handleOpenAdd = () => {
     setFormData(initialForm);

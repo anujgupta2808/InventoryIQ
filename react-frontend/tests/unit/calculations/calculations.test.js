@@ -3,6 +3,7 @@ import {
   roundTo,
   toPaise,
   fromPaise,
+  aggregateSaleItems,
   calculateItemTotal,
   calculateSaleTotals,
   calculatePurchaseTotals,
@@ -25,6 +26,33 @@ describe('Financial and Inventory Calculations', () => {
       expect(toPaise(10.50)).toBe(1050);
       expect(fromPaise(1050)).toBe(10.50);
       expect(toPaise(0)).toBe(0);
+      expect(toPaise(0.10 + 0.20)).toBe(30);
+      expect(fromPaise(toPaise(19.99) * 3)).toBe(59.97);
+    });
+  });
+
+  describe('aggregateSaleItems (Duplicate Line Normalization)', () => {
+    it('consolidates duplicate line items with identical productId into one item summing quantities', () => {
+      const items = [
+        { productId: 'prod_1', name: 'Widget A', price: 100, qty: 2 },
+        { productId: 'prod_2', name: 'Widget B', price: 200, qty: 1 },
+        { productId: 'prod_1', name: 'Widget A', price: 100, qty: 3 }
+      ];
+
+      const aggregated = aggregateSaleItems(items);
+      expect(aggregated).toHaveLength(2);
+      const prod1 = aggregated.find(i => String(i.productId) === 'prod_1');
+      expect(prod1).toBeDefined();
+      expect(prod1.qty).toBe(5);
+
+      const prod2 = aggregated.find(i => String(i.productId) === 'prod_2');
+      expect(prod2.qty).toBe(1);
+    });
+
+    it('handles empty or non-array inputs safely', () => {
+      expect(aggregateSaleItems([])).toEqual([]);
+      expect(aggregateSaleItems(null)).toEqual([]);
+      expect(aggregateSaleItems(undefined)).toEqual([]);
     });
   });
 
@@ -99,6 +127,44 @@ describe('Financial and Inventory Calculations', () => {
       expect(val.totalUnits).toBe(12);
       expect(val.lowStockCount).toBe(1);
       expect(val.outOfStockCount).toBe(1);
+    });
+  });
+
+  describe('calculateGrossProfit (GAAP COGS Accounting)', () => {
+    it('computes Gross Profit strictly as Revenue minus COGS (qty * cost_at_sale)', () => {
+      const sales = [
+        {
+          id: 'SALE-1',
+          amount: 1500,
+          items: [
+            { productId: 1, name: 'Item A', qty: 2, price: 500, cost: 300 }, // COGS: 600, Rev: 1000
+            { productId: 2, name: 'Item B', qty: 1, price: 500, cost: 200 }  // COGS: 200, Rev: 500
+          ]
+        }
+      ];
+      // Total Revenue = 1500, COGS = 800 -> Profit = 700
+      const res = calculateGrossProfit(sales, []);
+      expect(res.revenue).toBe(1500);
+      expect(res.cogs).toBe(800);
+      expect(res.profit).toBe(700);
+    });
+
+    it('does not allow bulk future inventory purchases to distort current sales profit', () => {
+      const sales = [
+        {
+          id: 'SALE-1',
+          amount: 1000,
+          items: [{ productId: 1, name: 'Item A', qty: 2, price: 500, cost: 250 }] // COGS = 500
+        }
+      ];
+      // Unrelated bulk purchase of ₹10,000 for next quarter
+      const purchases = [{ id: 'PO-1', amount: 10000 }];
+
+      const res = calculateGrossProfit(sales, purchases);
+      // Because line items provide COGS, profit is 1000 - 500 = 500 (NOT negative 9000!)
+      expect(res.profit).toBe(500);
+      expect(res.cogs).toBe(500);
+      expect(res.expenditure).toBe(10000);
     });
   });
 

@@ -11,6 +11,7 @@ import { calculatePurchaseTotals, roundTo } from '../utils/calculations.js';
 import { inventoryService } from './inventoryService.js';
 import { supplierService } from './supplierService.js';
 import { categoryService } from './categoryService.js';
+import { productService } from './productService.js';
 
 export class PurchaseService {
   constructor() {
@@ -120,17 +121,19 @@ export class PurchaseService {
     const updated = [...products];
 
     (po.items || []).forEach(item => {
-      const existingIdx = updated.findIndex(p =>
-        (item.productId && p.id === Number(item.productId)) ||
-        (item.name && p.name.trim().toLowerCase() === item.name.trim().toLowerCase())
-      );
+      // Primary matching by product_id or SKU to prevent duplicate name collisions
+      const existingIdx = updated.findIndex(p => {
+        if (item.productId && String(p.id) === String(item.productId)) return true;
+        if (item.sku && p.sku && String(p.sku).trim().toLowerCase() === String(item.sku).trim().toLowerCase()) return true;
+        return false;
+      });
 
-      const qty = Number(item.qty) || 0;
-      const cost = Number(item.cost || item.price) || 0;
+      const qty = Number(item.qty || item.receivedQty || 0);
+      const cost = Number(item.cost || item.price || 0);
 
       if (existingIdx >= 0) {
         const existing = updated[existingIdx];
-        const newStock = existing.stock + qty;
+        const newStock = roundTo(existing.stock + qty, 2);
         const minStock = Number(existing.minStock) || 0;
         const status = newStock <= 0 ? 'Out of Stock' : (newStock <= minStock ? 'Low Stock' : 'In Stock');
 
@@ -154,34 +157,36 @@ export class PurchaseService {
           user
         });
       } else {
-        // Auto-create new product
-        const newProdId = updated.length > 0 ? Math.max(...updated.map(p => Number(p.id) || 0)) + 1 : 1;
+        // Auto-create new product with unique SKU and UUID/ID
+        const newProdId = productService.generateId(updated);
         const price = Number(item.price) || Math.round(cost * 1.35) || (cost + 50);
         const categoryName = item.category ? String(item.category).trim() : 'General';
+        const sku = String(item.sku || productService.generateSKU()).trim();
         
         categoryService.addCategory(categoryName);
 
         const newProd = {
           id: newProdId,
-          name: item.name || `Purchased Item #${newProdId}`,
-          sku: item.sku || `SKU-${Math.floor(100 + Math.random() * 900)}`,
+          name: String(item.name || 'New Product').trim(),
+          sku,
           category: categoryName,
           stock: qty,
-          minStock: 20,
-          costPrice: cost,
+          minStock: 10,
           price,
+          costPrice: cost,
           unit: item.unit || 'Piece',
-          status: qty <= 0 ? 'Out of Stock' : (qty <= 20 ? 'Low Stock' : 'In Stock'),
-          supplierId: po.supplierId || null,
-          supplierName: po.supplierName || 'Vendor',
+          barcode: item.barcode || '',
+          supplierId: po.supplierId,
+          supplierName: po.supplierName,
+          status: qty > 0 ? (qty <= 10 ? 'Low Stock' : 'In Stock') : 'Out of Stock',
           createdAt: new Date().toISOString(),
           updatedAt: new Date().toISOString()
         };
 
-        updated.unshift(newProd);
+        updated.push(newProd);
 
         inventoryService.recordMovement({
-          productId: newProdId,
+          productId: newProd.id,
           productName: newProd.name,
           type: 'PURCHASE',
           quantity: qty,

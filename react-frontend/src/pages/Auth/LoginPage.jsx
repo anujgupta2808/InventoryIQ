@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useInventory } from '../../context/InventoryContext';
+import { isSupabaseConfigured } from '../../services/supabaseClient';
 
 export const LoginPage = () => {
   const {
@@ -11,8 +12,8 @@ export const LoginPage = () => {
     prefillEmail
   } = useInventory();
 
-  const [email, setEmail] = useState(prefillEmail || 'admin@inventoryiq.com');
-  const [password, setPassword] = useState('admin');
+  const [email, setEmail] = useState(prefillEmail || '');
+  const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [rememberMe, setRememberMe] = useState(true);
   const [loading, setLoading] = useState(false);
@@ -230,6 +231,18 @@ export const LoginPage = () => {
                 <h3 className="auth-title">Welcome Back!</h3>
                 <p className="auth-subtitle">Sign in to your InventoryIQ workspace</p>
               </div>
+
+              {/* Production Configuration Guard */}
+              {import.meta.env.PROD && !isSupabaseConfigured() && (
+                <div className="p-3 mb-3 rounded border border-warning border-opacity-50 text-start" style={{ background: 'rgba(245, 185, 66, 0.12)' }}>
+                  <div className="fw-semibold text-gold small mb-1">
+                    <i className="bi bi-exclamation-triangle-fill me-1"></i>Production Database Required
+                  </div>
+                  <p className="text-secondary small mb-0">
+                    Supabase backend connection is not configured. Please supply VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY to connect your PostgreSQL workspace. Insecure demo fallback is disabled in production.
+                  </p>
+                </div>
+              )}
 
               {/* Inline Error Banner */}
               {errorMessage && (
