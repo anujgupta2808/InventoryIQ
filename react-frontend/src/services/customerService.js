@@ -33,11 +33,10 @@ export class CustomerService {
       return { success: false, errors: validation.errors };
     }
 
-    const customers = this.getAll();
-    const newId = customers.length > 0 ? Math.max(...customers.map(c => Number(c.id) || 0)) + 1 : 1;
+    const newId = customerData.id ? String(customerData.id) : ((typeof crypto !== 'undefined' && crypto.randomUUID) ? `cust_${crypto.randomUUID()}` : `cust_${Date.now()}_${Math.floor(Math.random() * 1000)}`);
 
     const newCustomer = {
-      id: newId,
+      id: String(newId),
       name: String(customerData.name || '').trim(),
       email: String(customerData.email || '').trim(),
       phone: String(customerData.phone || '').trim(),
@@ -87,8 +86,8 @@ export class CustomerService {
     // Check if customer has outstanding dues or recorded sales
     const sales = storageService.getCollection('SALES');
     const linkedSales = sales.filter(s => 
-      (s.customerId && Number(s.customerId) === Number(id)) ||
-      (s.customerName && s.customerName.trim().toLowerCase() === customer.name.trim().toLowerCase())
+      (s.customerId && String(s.customerId) === String(id)) ||
+      (s.customerName && customer.name && s.customerName.trim().toLowerCase() === customer.name.trim().toLowerCase())
     );
 
     if (linkedSales.length > 0) {
@@ -106,10 +105,14 @@ export class CustomerService {
   }
 
   syncFromSale(saleData) {
+    const custId = saleData.customerId ? String(saleData.customerId) : null;
     const custName = (saleData.customerName || '').trim();
     if (!custName || custName.toLowerCase() === 'walk-in customer') return null;
 
-    const existing = this.findByName(custName);
+    let existing = custId ? this.getById(custId) : null;
+    if (!existing) {
+      existing = this.findByName(custName);
+    }
     const saleAmount = Number(saleData.amount) || 0;
     const paidAmount = Number(saleData.paidAmount) || 0;
     const dueAmount = Number(saleData.dueAmount) || 0;

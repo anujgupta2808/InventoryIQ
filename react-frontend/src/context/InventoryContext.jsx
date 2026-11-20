@@ -470,7 +470,7 @@ export const InventoryProvider = ({ children }) => {
   };
 
   const deleteProduct = (id) => {
-    const p = products.find(item => item.id === Number(id));
+    const p = products.find(item => String(item.id) === String(id));
     const res = productService.deleteProduct(id);
     if (res.success) {
       setProducts(productService.getAll());
@@ -608,7 +608,7 @@ export const InventoryProvider = ({ children }) => {
   };
 
   const deleteSupplier = (id) => {
-    const s = suppliers.find(item => item.id === Number(id));
+    const s = suppliers.find(item => String(item.id) === String(id));
     const res = supplierService.deleteSupplier(id);
     if (!res.success) {
       showToast('Cannot Remove Supplier', res.message, 'warning');

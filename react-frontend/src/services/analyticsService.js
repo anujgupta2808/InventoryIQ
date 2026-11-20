@@ -78,7 +78,7 @@ export class AnalyticsService {
     if (category && category !== 'All') {
       sales = sales.filter(s => 
         (s.items || []).some(item => {
-          const prod = products.find(p => p.id === Number(item.productId));
+          const prod = products.find(p => String(p.id) === String(item.productId));
           return prod && prod.category && prod.category.toLowerCase() === category.toLowerCase();
         })
       );
@@ -107,7 +107,7 @@ export class AnalyticsService {
 
     sales.forEach(s => {
       (s.items || []).forEach(item => {
-        const prodId = Number(item.productId) || item.name;
+        const prodId = item.productId ? String(item.productId) : item.name;
         const qty = Number(item.qty) || 0;
         const revenue = Number(item.price || 0) * qty;
 

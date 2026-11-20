@@ -104,21 +104,23 @@ export const SalesPage = () => {
 // --- Cart Calculations ---
 const calculatedItems = useMemo(() => {
   return cartItems.map(item => {
-    const p = products.find(x => x.id === Number(item.productId));
+    const p = products.find(x => String(x.id) === String(item.productId));
     const price = p ? Number(p.price) || 0 : 0;
     const qty = Math.max(0.01, parseFloat(item.qty) || 1);
     const total = price * qty;
     const availableStock = p ? p.stock : 0;
+    const gstRate = p?.gstRate !== undefined ? Number(p.gstRate) : Number(taxRate);
     return {
       productId: item.productId,
       name: p?.name || 'Selected Product',
       qty,
       price,
       total,
-      availableStock
+      availableStock,
+      gstRate
     };
   });
-}, [cartItems, products]);
+}, [cartItems, products, taxRate]);
 
 const hasStockErrors = useMemo(() => {
   return calculatedItems.some(i => i.qty > i.availableStock);
@@ -167,8 +169,8 @@ const handleOpenNewSale = () => {
 };
 
 const handleAddCartRow = () => {
-  const existingIds = new Set(cartItems.map(c => Number(c.productId)));
-  const nextProd = availableProducts.find(p => !existingIds.has(p.id)) || availableProducts[0] || products[0];
+  const existingIds = new Set(cartItems.map(c => String(c.productId)));
+  const nextProd = availableProducts.find(p => !existingIds.has(String(p.id))) || availableProducts[0] || products[0];
   if (nextProd) {
     setCartItems(prev => [...prev, { productId: nextProd.id, qty: 1 }]);
   } else {
@@ -223,15 +225,20 @@ const handleSubmitSale = (e) => {
       productId: i.productId,
       name: i.name,
       qty: i.qty,
-      price: i.price
+      price: i.price,
+      gstRate: i.gstRate !== undefined ? i.gstRate : Number(taxRate) || 0,
+      discount: 0
     })),
     subtotal,
     tax: taxVal,
+    taxRate: Number(taxRate) || 0,
     discount: discountVal,
     amount: grandTotal,
     paidAmount: effectivePaidNow,
     paymentMethod
   });
+
+  if (!newSale) return;
 
   setIsNewSaleOpen(false);
   setActiveInvoice(newSale);

@@ -42,7 +42,7 @@ export const generatePurchaseNumber = (prefix = 'PO', existingPurchases = []) =>
 
 export const generatePaymentId = (prefix = 'PAY') => {
   const rand = Math.floor(100000 + Math.random() * 900000);
-  return `${prefix}-${Date.now().toString().slice(-6)}${rand.toString().slice(-3)}`;
+  return `${prefix}-${Date.now()}${rand}`;
 };
 
 export const generateSKU = (category = 'GEN', existingProducts = []) => {

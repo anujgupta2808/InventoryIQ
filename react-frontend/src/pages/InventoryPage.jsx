@@ -184,7 +184,7 @@ export const InventoryPage = () => {
       return;
     }
 
-    const matchedSupplier = suppliers.find(s => s.id === Number(formData.supplierId));
+    const matchedSupplier = suppliers.find(s => String(s.id) === String(formData.supplierId));
 
     const payload = {
       ...formData,

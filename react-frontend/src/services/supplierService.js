@@ -33,11 +33,10 @@ export class SupplierService {
       return { success: false, errors: validation.errors };
     }
 
-    const suppliers = this.getAll();
-    const newId = suppliers.length > 0 ? Math.max(...suppliers.map(s => Number(s.id) || 0)) + 1 : 1;
+    const newId = suppData.id ? String(suppData.id) : ((typeof crypto !== 'undefined' && crypto.randomUUID) ? `sup_${crypto.randomUUID()}` : `sup_${Date.now()}_${Math.floor(Math.random() * 1000)}`);
 
     const newSupplier = {
-      id: newId,
+      id: String(newId),
       name: String(suppData.name || '').trim(),
       contactPerson: String(suppData.contactPerson || '').trim(),
       email: String(suppData.email || '').trim(),
@@ -88,8 +87,8 @@ export class SupplierService {
     // Check if supplier has pending purchase orders
     const purchases = storageService.getCollection('PURCHASES');
     const linkedPOs = purchases.filter(p => 
-      (p.supplierId && Number(p.supplierId) === Number(id)) ||
-      (p.supplierName && p.supplierName.trim().toLowerCase() === supplier.name.trim().toLowerCase())
+      (p.supplierId && String(p.supplierId) === String(id)) ||
+      (p.supplierName && supplier.name && p.supplierName.trim().toLowerCase() === supplier.name.trim().toLowerCase())
     );
 
     if (linkedPOs.length > 0) {
@@ -107,15 +106,19 @@ export class SupplierService {
   }
 
   syncFromPurchase(poData) {
+    const suppId = poData.supplierId ? String(poData.supplierId) : null;
     const suppName = (poData.supplierName || '').trim();
     const poAmount = Number(poData.amount) || 0;
     if (!suppName) return null;
 
-    let supplier = this.findByName(suppName);
+    let supplier = suppId ? this.getById(suppId) : null;
+    if (!supplier) {
+      supplier = this.findByName(suppName);
+    }
     if (!supplier && poData.newSupplierData) {
       const added = this.addSupplier({
         name: poData.newSupplierData.name || suppName,
-        contactPerson: poData.newSupplierData.contactPerson || 'Vendor Rep',
+        contactPerson: poData.newSupplierData.contactPerson || '',
         email: poData.newSupplierData.email || '',
         phone: poData.newSupplierData.phone || '',
         address: poData.newSupplierData.address || '',
@@ -138,7 +141,7 @@ export class SupplierService {
     const target = String(nameOrId || '').trim().toLowerCase();
 
     const supplierPurchases = purchases.filter(p => 
-      (p.supplierId && String(p.supplierId) === target) ||
+      (p.supplierId && String(p.supplierId).toLowerCase() === target) ||
       (p.supplierName && p.supplierName.trim().toLowerCase() === target)
     );
 

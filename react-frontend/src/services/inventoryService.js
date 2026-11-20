@@ -17,7 +17,7 @@ export class InventoryService {
     let movements = storageService.getCollection(this.movementsCollection);
 
     if (filters.productId) {
-      movements = movements.filter(m => Number(m.productId) === Number(filters.productId));
+      movements = movements.filter(m => String(m.productId) === String(filters.productId));
     }
     if (filters.type) {
       movements = movements.filter(m => m.type && m.type.toUpperCase() === filters.type.toUpperCase());
@@ -37,9 +37,13 @@ export class InventoryService {
     reason = '',
     user = 'Admin'
   }) {
+    const movementId = (typeof crypto !== 'undefined' && crypto.randomUUID)
+      ? `MOV_${crypto.randomUUID()}`
+      : `MOV_${Date.now()}_${Math.floor(1000 + Math.random() * 9000)}`;
+
     const movement = {
-      id: `MOV-${Date.now().toString().slice(-6)}${Math.floor(10 + Math.random() * 90)}`,
-      productId: Number(productId),
+      id: movementId,
+      productId: String(productId),
       productName: productName || 'Product',
       type: type.toUpperCase(),
       quantity: Number(quantity),

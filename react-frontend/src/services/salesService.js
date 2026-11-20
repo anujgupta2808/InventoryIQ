@@ -125,7 +125,9 @@ export class SalesService {
       // 6. Payment history
       const paymentHistory = [];
       if (paidAmount > 0) {
-        const paymentRecordId = `PAY-${Date.now().toString().slice(-6)}`;
+        const paymentRecordId = (typeof crypto !== 'undefined' && crypto.randomUUID)
+          ? `PAY_${crypto.randomUUID()}`
+          : `PAY_${Date.now()}_${Math.floor(1000 + Math.random() * 9000)}`;
         paymentHistory.push({
           id: paymentRecordId,
           date: dateStr,

@@ -86,8 +86,8 @@ export const PurchasesPage = () => {
 
   const handleAddPoRow = () => {
     if (products.length > 0) {
-      const existingIds = new Set(poItems.map(i => Number(i.productId)));
-      const nextProd = products.find(p => !existingIds.has(p.id)) || products[0];
+      const existingIds = new Set(poItems.map(i => String(i.productId)));
+      const nextProd = products.find(p => !existingIds.has(String(p.id))) || products[0];
       setPoItems(prev => [...prev, {
         productId: nextProd.id,
         name: nextProd.name,
@@ -160,7 +160,7 @@ export const PurchasesPage = () => {
     let newSuppData = null;
 
     if (supplierMode === 'existing') {
-      const sup = suppliers.find(s => s.id === Number(poSupplierId));
+      const sup = suppliers.find(s => String(s.id) === String(poSupplierId));
       if (!sup) {
         showToast('Validation Error', 'Please select a supplier.', 'danger');
         return;
@@ -197,7 +197,7 @@ export const PurchasesPage = () => {
       let finalName = i.name;
       let finalCat = i.category;
       if (!i.isNew && i.productId) {
-        const p = products.find(x => x.id === Number(i.productId));
+        const p = products.find(x => String(x.id) === String(i.productId));
         if (p) {
           finalName = p.name;
           finalCat = p.category;
@@ -234,7 +234,7 @@ export const PurchasesPage = () => {
         let updated = [...prev];
         po.items.forEach(item => {
           const existingIdx = updated.findIndex(p =>
-            (item.productId && p.id === Number(item.productId)) ||
+            (item.productId && String(p.id) === String(item.productId)) ||
             (item.name && p.name.trim().toLowerCase() === item.name.trim().toLowerCase())
           );
           if (existingIdx >= 0) {
@@ -248,7 +248,7 @@ export const PurchasesPage = () => {
               status
             };
           } else {
-            const newProdId = updated.length > 0 ? Math.max(...updated.map(p => p.id)) + 1 : 1;
+            const newProdId = (typeof crypto !== 'undefined' && crypto.randomUUID) ? `prod_${crypto.randomUUID()}` : `prod_${Date.now()}_${Math.floor(Math.random() * 1000)}`;
             const cost = Number(item.cost) || 0;
             const price = Number(item.price) || Math.round(cost * 1.35) || (cost + 50);
             const qty = Number(item.qty) || 1;
@@ -263,7 +263,7 @@ export const PurchasesPage = () => {
               price: price,
               unit: 'Piece',
               status: qty <= 0 ? 'Out of Stock' : 'In Stock',
-              supplierId: po.supplierId || 1,
+              supplierId: po.supplierId || '',
               supplierName: po.supplierName || 'Supplier'
             };
             updated.unshift(newProd);

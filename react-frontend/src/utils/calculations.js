@@ -177,14 +177,18 @@ export const calculateGrossProfit = (sales = [], purchases = []) => {
   };
 };
 
-export const calculateCustomerBalances = (sales = [], customerName = '') => {
-  const target = String(customerName || '').trim().toLowerCase();
+export const calculateCustomerBalances = (sales = [], customerNameOrId = '') => {
+  const target = String(customerNameOrId || '').trim().toLowerCase();
   let totalBilled = 0;
   let totalReceived = 0;
   let totalDue = 0;
 
   sales.forEach(s => {
-    if (!target || (s.customerName && s.customerName.trim().toLowerCase() === target)) {
+    const match = !target ||
+      (s.customerId && String(s.customerId).toLowerCase() === target) ||
+      (s.customerName && s.customerName.trim().toLowerCase() === target);
+
+    if (match) {
       const amt = Number(s.amount) || 0;
       const paid = s.paidAmount !== undefined
         ? Number(s.paidAmount) || 0

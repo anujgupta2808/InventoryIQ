@@ -54,7 +54,7 @@ export const PartyDueTrackerPage = () => {
 
     sales.forEach(s => {
       const name = (s.customerName || '').trim() || 'Walk-in Customer';
-      const key = name.toLowerCase();
+      const key = s.customerId ? `id_${String(s.customerId)}` : `name_${name.toLowerCase()}`;
 
       const billed = Number(s.amount) || 0;
       const paid = getSalePaid(s);
@@ -62,6 +62,7 @@ export const PartyDueTrackerPage = () => {
 
       if (!map.has(key)) {
         map.set(key, {
+          customerId: s.customerId || null,
           name,
           phone: s.customerPhone || '',
           email: s.customerEmail || '',

@@ -3,11 +3,13 @@ import { useInventory } from '../context/InventoryContext';
 import { usePermissions } from '../hooks/usePermissions';
 import { mfaService } from '../services/mfaService';
 import { isSupabaseConfigured } from '../services/supabaseClient';
-import { migrationService } from '../services/migrationService';
+import { settingsRepository } from '../repositories/settingsRepository';
 
 export const SecurityPage = () => {
   const {
     user,
+    shopId,
+    setCurrentPage,
     sessions,
     revokeSession,
     revokeAllOtherSessions,
@@ -56,47 +58,58 @@ export const SecurityPage = () => {
   // --------------------------------------------------------------------------
   // TEAM & ROLES (RBAC) STATE
   // --------------------------------------------------------------------------
-  const [teamMembers, setTeamMembers] = useState(() => {
-    try {
-      const stored = localStorage.getItem('iq_team_members');
-      if (stored) {
-        const parsed = JSON.parse(stored);
-        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
-      }
-    } catch (e) { }
-    return [
-      {
-        id: user?.id || 'usr-1',
-        name: user?.name || 'Anuj Gupta',
-        email: user?.email || 'admin@inventoryiq.com',
-        role: user?.role || 'owner',
-        status: 'Active',
-        joinedAt: 'Nov 2026'
-      },
-      {
-        id: 'usr-2',
-        name: 'Priya Sharma',
-        email: 'priya.finance@inventoryiq.com',
-        role: 'admin',
-        status: 'Active',
-        joinedAt: 'Nov 2026'
-      },
-      {
-        id: 'usr-3',
-        name: 'Rahul Verma',
-        email: 'rahul.store@inventoryiq.com',
-        role: 'staff',
-        status: 'Active',
-        joinedAt: 'Nov 2026'
-      }
-    ];
-  });
+  const [teamMembers, setTeamMembers] = useState(() => [
+    {
+      id: user?.id || 'usr-1',
+      name: user?.name || 'Anuj Gupta',
+      email: user?.email || 'admin@inventoryiq.com',
+      role: user?.role || 'owner',
+      status: 'Active',
+      joinedAt: 'Nov 2026'
+    },
+    {
+      id: 'usr-2',
+      name: 'Priya Sharma',
+      email: 'priya.finance@inventoryiq.com',
+      role: 'admin',
+      status: 'Active',
+      joinedAt: 'Nov 2026'
+    },
+    {
+      id: 'usr-3',
+      name: 'Rahul Verma',
+      email: 'rahul.store@inventoryiq.com',
+      role: 'staff',
+      status: 'Active',
+      joinedAt: 'Nov 2026'
+    }
+  ]);
 
+  // Load team members from local IndexedDB settings
   useEffect(() => {
-    try {
-      localStorage.setItem('iq_team_members', JSON.stringify(teamMembers));
-    } catch (e) { }
-  }, [teamMembers]);
+    let isMounted = true;
+    const loadTeam = async () => {
+      try {
+        const stored = await settingsRepository.get(shopId, 'iq_team_members');
+        if (stored && Array.isArray(stored) && stored.length > 0 && isMounted) {
+          setTeamMembers(stored);
+        }
+      } catch (e) {
+        console.warn('Could not load team members from IndexedDB:', e);
+      }
+    };
+    if (shopId) loadTeam();
+    return () => { isMounted = false; };
+  }, [shopId]);
+
+  // Persist team members to local IndexedDB settings
+  useEffect(() => {
+    if (shopId && Array.isArray(teamMembers) && teamMembers.length > 0) {
+      settingsRepository.set(shopId, 'iq_team_members', teamMembers).catch(e => {
+        console.warn('Could not save team members to IndexedDB:', e);
+      });
+    }
+  }, [teamMembers, shopId]);
 
   const [inviteModalOpen, setInviteModalOpen] = useState(false);
   const [inviteData, setInviteData] = useState({ name: '', email: '', role: 'staff' });
@@ -105,14 +118,6 @@ export const SecurityPage = () => {
   // AUDIT LOG FILTER
   // --------------------------------------------------------------------------
   const [logSearch, setLogSearch] = useState('');
-
-  // --------------------------------------------------------------------------
-  // MIGRATION MODAL STATE
-  // --------------------------------------------------------------------------
-  const [migrationModalOpen, setMigrationModalOpen] = useState(false);
-  const [migrationStats, setMigrationStats] = useState(null);
-  const [migrationProgress, setMigrationProgress] = useState(null);
-  const [migrationInProgress, setMigrationInProgress] = useState(false);
 
   // Check initial 2FA status
   useEffect(() => {
@@ -444,36 +449,6 @@ export const SecurityPage = () => {
     });
   };
 
-  // --------------------------------------------------------------------------
-  // MIGRATION HANDLERS
-  // --------------------------------------------------------------------------
-  const handleOpenMigration = () => {
-    const stats = migrationService.inspectDemoData();
-    setMigrationStats(stats);
-    setMigrationModalOpen(true);
-    setMigrationProgress(null);
-  };
-
-  const handleExecuteMigration = async () => {
-    setMigrationInProgress(true);
-    setMigrationProgress({ stage: 'starting', message: 'Connecting to Supabase...' });
-
-    const orgId = user?.organizationId || '00000000-0000-0000-0000-000000000001';
-    const res = await migrationService.migrateToSupabase({
-      organizationId: orgId,
-      onProgress: (p) => setMigrationProgress(p)
-    });
-
-    setMigrationInProgress(false);
-
-    if (res.success) {
-      showToast('Migration Complete', `Migrated ${res.results.products} products, ${res.results.sales} sales to Supabase PostgreSQL!`, 'success');
-      addAuditLog('Data Migrated', `Successfully transferred local demo data to Supabase organization ${orgId}`);
-    } else {
-      showToast('Migration Notice', res.message || 'Check database connection credentials.', 'warning');
-    }
-  };
-
   // Filtered audit logs
   const filteredLogs = auditLogs.filter(log =>
     log.action.toLowerCase().includes(logSearch.toLowerCase()) ||
@@ -502,10 +477,10 @@ export const SecurityPage = () => {
         <button
           type="button"
           className="btn btn-secondary-custom btn-sm d-flex align-items-center gap-2"
-          onClick={handleOpenMigration}
+          onClick={() => setCurrentPage('settings')}
         >
-          <i className="bi bi-cloud-arrow-up text-gold"></i>
-          <span>Cloud Database Migration</span>
+          <i className="bi bi-shield-check text-gold"></i>
+          <span>Data & Backups</span>
         </button>
       </div>
 
@@ -1165,86 +1140,6 @@ export const SecurityPage = () => {
                 </button>
               </div>
             </form>
-          </div>
-        </div>
-      )}
-
-      {/* -------------------------------------------------------------------- */}
-      {/* CLOUD MIGRATION MODAL (PHASE 14 DATA MIGRATION)                      */}
-      {/* -------------------------------------------------------------------- */}
-      {migrationModalOpen && (
-        <div
-          className="iq-modal-backdrop"
-          style={{ zIndex: 1060, opacity: 1 }}
-          onClick={() => setMigrationModalOpen(false)}
-        >
-          <div
-            className="iq-modal-container p-0"
-            style={{ maxWidth: 520, opacity: 1, backgroundColor: '#1A1A1A' }}
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="d-flex align-items-center justify-content-between p-3 border-bottom border-secondary">
-              <div className="d-flex align-items-center gap-2">
-                <i className="bi bi-cloud-arrow-up text-gold fs-5"></i>
-                <h5 className="modal-title fw-bold text-white mb-0">Cloud Database Migration</h5>
-              </div>
-              <button
-                type="button"
-                className="btn-close btn-close-white"
-                onClick={() => setMigrationModalOpen(false)}
-              ></button>
-            </div>
-
-            <div className="p-4" style={{ opacity: 1 }}>
-              <p className="text-secondary small mb-3">
-                Migrate your verified business data (products, sales, suppliers, customers) from local storage directly into Supabase PostgreSQL under your authenticated tenant organization.
-              </p>
-
-              {migrationStats && (
-                <div className="p-3 rounded bg-secondary-dark border border-secondary border-opacity-50 mb-3">
-                  <h6 className="text-white fw-bold mb-2 small text-uppercase">Records Eligible for Migration</h6>
-                  <div className="row g-2 text-secondary small">
-                    <div className="col-6">Products: <strong className="text-white">{migrationStats.productsCount}</strong></div>
-                    <div className="col-6">Categories: <strong className="text-white">{migrationStats.categoriesCount}</strong></div>
-                    <div className="col-6">Sales Orders: <strong className="text-white">{migrationStats.salesCount}</strong></div>
-                    <div className="col-6">Suppliers: <strong className="text-white">{migrationStats.suppliersCount}</strong></div>
-                    <div className="col-6">Customers: <strong className="text-white">{migrationStats.customersCount}</strong></div>
-                    <div className="col-6">Total Records: <strong className="text-gold">{migrationStats.totalRecords}</strong></div>
-                  </div>
-                </div>
-              )}
-
-              <div className="p-2 rounded bg-black border border-secondary border-opacity-25 text-secondary small mb-3">
-                <i className="bi bi-shield-check text-gold me-1"></i>
-                Passwords, mock tokens, and fake sessions are excluded from migration.
-              </div>
-
-              {migrationProgress && (
-                <div className="p-3 mb-3 rounded bg-secondary-dark border border-warning border-opacity-50 text-gold small">
-                  <i className="bi bi-arrow-repeat spin me-2"></i>
-                  {migrationProgress.message}
-                </div>
-              )}
-
-              <div className="d-flex align-items-center justify-content-end gap-2">
-                <button
-                  type="button"
-                  className="btn btn-secondary-custom btn-sm"
-                  onClick={() => setMigrationModalOpen(false)}
-                  disabled={migrationInProgress}
-                >
-                  Close
-                </button>
-                <button
-                  type="button"
-                  className="btn-gold btn-sm fw-semibold"
-                  onClick={handleExecuteMigration}
-                  disabled={migrationInProgress}
-                >
-                  {migrationInProgress ? 'Migrating Records...' : 'Start Migration'}
-                </button>
-              </div>
-            </div>
           </div>
         </div>
       )}
