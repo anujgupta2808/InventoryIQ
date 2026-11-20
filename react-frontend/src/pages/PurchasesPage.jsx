@@ -8,6 +8,7 @@ export const PurchasesPage = () => {
     categories,
     suppliers,
     createPurchase,
+    receivePurchase,
     setPurchases,
     setProducts,
     exportCSV,
@@ -227,54 +228,7 @@ export const PurchasesPage = () => {
 
   const handleMarkCompleted = (po) => {
     if (po.status === 'Completed') return;
-
-    // Replenish stock or auto-create in inventory
-    if (po.items && po.items.length) {
-      setProducts(prev => {
-        let updated = [...prev];
-        po.items.forEach(item => {
-          const existingIdx = updated.findIndex(p =>
-            (item.productId && String(p.id) === String(item.productId)) ||
-            (item.name && p.name.trim().toLowerCase() === item.name.trim().toLowerCase())
-          );
-          if (existingIdx >= 0) {
-            const existing = updated[existingIdx];
-            const newStock = existing.stock + Number(item.qty);
-            const status = newStock <= 0 ? 'Out of Stock' : (newStock <= existing.minStock ? 'Low Stock' : 'In Stock');
-            updated[existingIdx] = {
-              ...existing,
-              stock: newStock,
-              costPrice: Number(item.cost) || existing.costPrice,
-              status
-            };
-          } else {
-            const newProdId = (typeof crypto !== 'undefined' && crypto.randomUUID) ? `prod_${crypto.randomUUID()}` : `prod_${Date.now()}_${Math.floor(Math.random() * 1000)}`;
-            const cost = Number(item.cost) || 0;
-            const price = Number(item.price) || Math.round(cost * 1.35) || (cost + 50);
-            const qty = Number(item.qty) || 1;
-            const newProd = {
-              id: newProdId,
-              name: item.name || `Product #${newProdId}`,
-              sku: `SKU-${Math.floor(100 + Math.random() * 900)}`,
-              category: item.category ? String(item.category).trim() : 'General',
-              stock: qty,
-              minStock: 20,
-              costPrice: cost,
-              price: price,
-              unit: 'Piece',
-              status: qty <= 0 ? 'Out of Stock' : 'In Stock',
-              supplierId: po.supplierId || '',
-              supplierName: po.supplierName || 'Supplier'
-            };
-            updated.unshift(newProd);
-          }
-        });
-        return updated;
-      });
-    }
-
-    setPurchases(prev => prev.map(p => p.id === po.id ? { ...p, status: 'Completed' } : p));
-    showToast('PO Received', `Order #${po.id} marked as Received. Stock added to Inventory catalog.`);
+    receivePurchase(po.id);
   };
 
   const handleExport = () => {

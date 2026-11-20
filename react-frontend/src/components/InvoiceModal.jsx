@@ -221,15 +221,34 @@ Thank you for your business!
                 <span className="text-secondary">Subtotal</span>
                 <span className="text-white">₹{(activeInvoice.subtotal || totalAmount).toLocaleString('en-IN')}</span>
               </div>
-              <div className="d-flex justify-content-between py-1">
-                <span className="text-secondary">GST / Tax</span>
-                <span className="text-white">₹{(activeInvoice.tax || 0).toLocaleString('en-IN')}</span>
-              </div>
-              {activeInvoice.discount > 0 && (
+              {Number(activeInvoice.discount) > 0 && (
                 <div className="d-flex justify-content-between py-1">
                   <span className="text-secondary">Discount</span>
                   <span className="text-success">-₹{Number(activeInvoice.discount).toLocaleString('en-IN')}</span>
                 </div>
+              )}
+              {activeInvoice.taxableAmount !== undefined && (
+                <div className="d-flex justify-content-between py-1">
+                  <span className="text-secondary">Taxable Amount</span>
+                  <span className="text-white">₹{Number(activeInvoice.taxableAmount).toLocaleString('en-IN')}</span>
+                </div>
+              )}
+              {activeInvoice.isInterState ? (
+                <div className="d-flex justify-content-between py-1">
+                  <span className="text-secondary">IGST</span>
+                  <span className="text-white">₹{(Number(activeInvoice.igst ?? activeInvoice.tax) || 0).toLocaleString('en-IN')}</span>
+                </div>
+              ) : (
+                <>
+                  <div className="d-flex justify-content-between py-1">
+                    <span className="text-secondary">CGST</span>
+                    <span className="text-white">₹{(Number(activeInvoice.cgst ?? ((activeInvoice.tax || 0) / 2)) || 0).toLocaleString('en-IN')}</span>
+                  </div>
+                  <div className="d-flex justify-content-between py-1">
+                    <span className="text-secondary">SGST</span>
+                    <span className="text-white">₹{(Number(activeInvoice.sgst ?? ((activeInvoice.tax || 0) / 2)) || 0).toLocaleString('en-IN')}</span>
+                  </div>
+                </>
               )}
               <div className="d-flex justify-content-between py-2 border-top border-secondary mt-1">
                 <span className="fw-bold text-white fs-6">Grand Total:</span>

@@ -81,14 +81,17 @@ describe('Financial and Inventory Calculations', () => {
     it('aggregates multiple line items with tax and overall flat discount', () => {
       const items = [
         { price: 500, qty: 2, gstRate: 0, discount: 0 }, // 1000
-        { price: 200, qty: 1, gstRate: 18, discount: 0 } // 200 + 36 GST
+        { price: 200, qty: 1, gstRate: 18, discount: 0 } // 200 + 18% GST on taxable
       ];
-      // Subtotal = 1200. Overall discount = 100 -> Final Subtotal = 1100. GST = 36. Grand Total = 1136.
+      // Subtotal = 1200. Overall discount = 100 -> Final Taxable = 1100.
+      // Line 2 share = 200/1200 * 100 = 16.67 discount -> 183.33 taxable -> 18% GST = 33 tax.
+      // Grand Total = 1100 + 33 = 1133.
       const totals = calculateSaleTotals(items, 100, 0);
       expect(totals.subtotal).toBe(1200);
       expect(totals.discount).toBe(100);
-      expect(totals.tax).toBe(36);
-      expect(totals.amount).toBe(1136);
+      expect(totals.taxableAmount).toBe(1100);
+      expect(totals.tax).toBe(33);
+      expect(totals.amount).toBe(1133);
     });
 
     it('handles empty items array gracefully', () => {

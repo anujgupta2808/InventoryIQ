@@ -95,13 +95,53 @@ export const validateSale = (sale, existingProducts = []) => {
     return { isValid: false, errors };
   }
 
+  // Validate invoice-level discount (Task 2)
+  if (sale.discount !== undefined && sale.discount !== null && sale.discount !== '') {
+    const discNum = Number(sale.discount);
+    if (isNaN(discNum) || !isFinite(discNum)) {
+      errors.push('Discount must be a valid number.');
+    } else if (discNum < 0) {
+      errors.push('Discount cannot be negative.');
+    } else if (sale.subtotal !== undefined && discNum > Number(sale.subtotal)) {
+      errors.push(`Discount (₹${discNum}) cannot exceed invoice subtotal (₹${sale.subtotal}); discount cannot be greater than subtotal.`);
+    }
+  }
+
+  // Validate tax rate
+  if (sale.taxRate !== undefined && sale.taxRate !== null && sale.taxRate !== '') {
+    const taxNum = Number(sale.taxRate);
+    if (isNaN(taxNum) || !isFinite(taxNum) || taxNum < 0 || taxNum > 100) {
+      errors.push('Tax rate must be a valid percentage between 0% and 100%.');
+    }
+  }
+
   // Aggregate quantities by product ID to detect stock exhaustion across duplicate lines
   const aggregatedQuantities = new Map();
 
   sale.items.forEach((item, index) => {
+    const itemLabel = item.name || `Item #${index + 1}`;
     const qty = Number(item.qty);
-    if (!isPositiveNumber(qty)) {
-      errors.push(`Item #${index + 1} (${item.name || 'Unknown'}) has an invalid quantity.`);
+    if (!isPositiveNumber(qty) || !isFinite(qty)) {
+      errors.push(`Item #${index + 1} (${itemLabel}) has an invalid quantity.`);
+    }
+
+    const price = Number(item.price);
+    if (isNaN(price) || !isFinite(price) || price < 0) {
+      errors.push(`Item #${index + 1} (${itemLabel}) has an invalid price.`);
+    }
+
+    if (item.discount !== undefined && item.discount !== null && item.discount !== '') {
+      const lineDisc = Number(item.discount);
+      if (isNaN(lineDisc) || !isFinite(lineDisc) || lineDisc < 0 || lineDisc > 100) {
+        errors.push(`Item #${index + 1} (${itemLabel}) discount must be between 0% and 100%.`);
+      }
+    }
+
+    if (item.gstRate !== undefined && item.gstRate !== null && item.gstRate !== '') {
+      const lineGst = Number(item.gstRate);
+      if (isNaN(lineGst) || !isFinite(lineGst) || lineGst < 0 || lineGst > 100) {
+        errors.push(`Item #${index + 1} (${itemLabel}) GST rate must be between 0% and 100%.`);
+      }
     }
 
     if (item.productId) {
@@ -118,10 +158,10 @@ export const validateSale = (sale, existingProducts = []) => {
   if (existingProducts.length > 0) {
     for (const [prodId, data] of aggregatedQuantities.entries()) {
       const prod = existingProducts.find(p => String(p.id) === String(prodId));
-      if (prod) {
-        if (Number(prod.stock) < data.qty) {
-          errors.push(`Insufficient stock for "${prod.name}". Available: ${prod.stock}, Total Requested: ${data.qty}.`);
-        }
+      if (!prod) {
+        errors.push(`Product #${prodId} (${data.name}) was not found in catalog; does not exist in product catalog.`);
+      } else if (Number(prod.stock) < data.qty) {
+        errors.push(`Insufficient stock for "${prod.name}". Available: ${prod.stock}, Total Requested: ${data.qty}. Requested quantity exceeds available inventory.`);
       }
     }
   }

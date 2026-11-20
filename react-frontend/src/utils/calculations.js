@@ -55,29 +55,118 @@ export const calculateItemTotal = (price, qty, gstRate = 0, discountPercent = 0)
   };
 };
 
-export const calculateSaleTotals = (items = [], overallDiscount = 0, taxRate = 0) => {
+export const calculateSaleTotals = (items = [], overallDiscount = 0, taxRate = 0, options = {}) => {
+  const isInterState = Boolean(options.isInterState);
+  let rawSubtotalPaise = 0;
+  let lineDiscountPaiseTotal = 0;
   let subtotalPaise = 0;
-  let totalGstPaise = 0;
 
-  items.forEach(item => {
-    const p = Number(item.price) || 0;
-    const q = Number(item.qty) || 0;
-    const gst = Number(item.gstRate !== undefined ? item.gstRate : (taxRate || 0));
-    const itemCalc = calculateItemTotal(p, q, gst, item.discount || 0);
-    subtotalPaise += toPaise(itemCalc.taxableAmount);
-    totalGstPaise += toPaise(itemCalc.gstAmount);
+  // First pass: compute line subtotal and line discounts
+  const preliminaryLines = items.map(item => {
+    const p = Math.max(0, Number(item.price) || 0);
+    const q = Math.max(0, Number(item.qty) || 0);
+    const gstRate = Number(item.gstRate !== undefined ? item.gstRate : (taxRate || 0));
+    const lineDiscount = Number(item.discount || 0);
+
+    const pricePaise = toPaise(p);
+    const lineRawPaise = Math.round(pricePaise * q);
+    const lineDiscPaise = Math.round(lineRawPaise * (Math.max(0, Math.min(100, lineDiscount)) / 100));
+    const lineTaxableBeforeOverallPaise = Math.max(0, lineRawPaise - lineDiscPaise);
+
+    rawSubtotalPaise += lineRawPaise;
+    lineDiscountPaiseTotal += lineDiscPaise;
+    subtotalPaise += lineTaxableBeforeOverallPaise;
+
+    return {
+      item,
+      p,
+      q,
+      gstRate,
+      lineDiscount,
+      lineRawPaise,
+      lineDiscPaise,
+      lineTaxableBeforeOverallPaise
+    };
   });
 
-  const discPaise = toPaise(overallDiscount);
-  const finalSubtotalPaise = Math.max(0, subtotalPaise - discPaise);
-  const grandTotalPaise = finalSubtotalPaise + totalGstPaise;
+  // Invoice-level discount (percentage or fixed amount)
+  let discPaise = 0;
+  if (options.discountType === 'percentage') {
+    const pct = Math.max(0, Math.min(100, Number(overallDiscount) || 0));
+    discPaise = Math.round(subtotalPaise * (pct / 100));
+  } else {
+    discPaise = Math.min(subtotalPaise, Math.max(0, toPaise(overallDiscount || 0)));
+  }
+
+  // Apportion overall discount proportionally across line items to compute taxable amount before GST
+  let allocatedDiscPaiseSum = 0;
+  let totalTaxablePaise = 0;
+  let totalGstPaise = 0;
+  let totalCgstPaise = 0;
+  let totalSgstPaise = 0;
+  let totalIgstPaise = 0;
+
+  const calculatedLines = preliminaryLines.map((pl, idx) => {
+    let lineOverallDiscPaise = 0;
+    if (subtotalPaise > 0 && discPaise > 0) {
+      if (idx === preliminaryLines.length - 1) {
+        lineOverallDiscPaise = Math.max(0, discPaise - allocatedDiscPaiseSum);
+      } else {
+        lineOverallDiscPaise = Math.round(discPaise * (pl.lineTaxableBeforeOverallPaise / subtotalPaise));
+        allocatedDiscPaiseSum += lineOverallDiscPaise;
+      }
+    }
+
+    const effectiveTaxablePaise = Math.max(0, pl.lineTaxableBeforeOverallPaise - lineOverallDiscPaise);
+    const lineTaxPaise = Math.round(effectiveTaxablePaise * (Math.max(0, pl.gstRate) / 100));
+    const lineTotalPaise = effectiveTaxablePaise + lineTaxPaise;
+
+    const lineCgstPaise = isInterState ? 0 : Math.round(lineTaxPaise / 2);
+    const lineSgstPaise = isInterState ? 0 : (lineTaxPaise - lineCgstPaise);
+    const lineIgstPaise = isInterState ? lineTaxPaise : 0;
+
+    totalTaxablePaise += effectiveTaxablePaise;
+    totalGstPaise += lineTaxPaise;
+    totalCgstPaise += lineCgstPaise;
+    totalSgstPaise += lineSgstPaise;
+    totalIgstPaise += lineIgstPaise;
+
+    return {
+      ...pl.item,
+      price: pl.p,
+      qty: pl.q,
+      gstRate: pl.gstRate,
+      discount: pl.lineDiscount,
+      rawSubtotal: fromPaise(pl.lineRawPaise),
+      discountAmount: fromPaise(pl.lineDiscPaise + lineOverallDiscPaise),
+      taxableAmount: fromPaise(effectiveTaxablePaise),
+      tax: fromPaise(lineTaxPaise),
+      cgst: fromPaise(lineCgstPaise),
+      sgst: fromPaise(lineSgstPaise),
+      igst: fromPaise(lineIgstPaise),
+      total: fromPaise(lineTotalPaise),
+      totalPaise: lineTotalPaise
+    };
+  });
+
+  const grandTotalPaise = totalTaxablePaise + totalGstPaise;
 
   return {
+    rawSubtotal: fromPaise(rawSubtotalPaise),
     subtotal: fromPaise(subtotalPaise),
+    lineDiscounts: fromPaise(lineDiscountPaiseTotal),
     discount: fromPaise(discPaise),
+    overallDiscount: fromPaise(discPaise),
+    totalDiscount: fromPaise(lineDiscountPaiseTotal + discPaise),
+    taxableAmount: fromPaise(totalTaxablePaise),
     tax: fromPaise(totalGstPaise),
+    cgst: fromPaise(totalCgstPaise),
+    sgst: fromPaise(totalSgstPaise),
+    igst: fromPaise(totalIgstPaise),
+    isInterState,
     amount: fromPaise(grandTotalPaise),
-    amountPaise: grandTotalPaise
+    amountPaise: grandTotalPaise,
+    items: calculatedLines
   };
 };
 
@@ -147,14 +236,16 @@ export const calculateStockValuation = (products = []) => {
  * Tracks actual cost_at_sale for historical accuracy.
  */
 export const calculateGrossProfit = (sales = [], purchases = []) => {
-  const totalRevenue = sales.reduce((sum, s) => sum + (Number(s.amount) || 0), 0);
+  // Cancelled sales must not be counted as completed sales (Task 6)
+  const activeSales = sales.filter(s => s && s.status !== 'Cancelled');
+  const totalRevenue = activeSales.reduce((sum, s) => sum + (Number(s.amount) || 0), 0);
   const totalExpenditure = purchases.reduce((sum, p) => sum + (Number(p.amount) || 0), 0);
 
-  // Compute COGS: Sum of (item.qty * cost_at_sale) across all sold items
+  // Compute COGS: Sum of (item.qty * cost_at_sale) across all active sold items
   let totalCOGS = 0;
   let hasItemCosts = false;
 
-  sales.forEach(s => {
+  activeSales.forEach(s => {
     if (Array.isArray(s.items) && s.items.length > 0) {
       s.items.forEach(item => {
         const cost = Number(item.cost !== undefined ? item.cost : (item.costPrice || 0));
@@ -184,6 +275,9 @@ export const calculateCustomerBalances = (sales = [], customerNameOrId = '') => 
   let totalDue = 0;
 
   sales.forEach(s => {
+    // Exclude cancelled invoices from active debtor balances
+    if (s && s.status === 'Cancelled') return;
+
     const match = !target ||
       (s.customerId && String(s.customerId).toLowerCase() === target) ||
       (s.customerName && s.customerName.trim().toLowerCase() === target);
@@ -206,7 +300,8 @@ export const calculateCustomerBalances = (sales = [], customerNameOrId = '') => 
   return {
     totalBilled: roundTo(totalBilled),
     totalReceived: roundTo(totalReceived),
-    totalDue: roundTo(totalDue)
+    totalDue: roundTo(totalDue),
+    currentDue: roundTo(totalDue)
   };
 };
 

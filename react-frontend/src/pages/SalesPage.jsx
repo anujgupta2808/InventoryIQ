@@ -1,5 +1,6 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { useInventory } from '../context/InventoryContext';
+import { calculateSaleTotals } from '../utils/calculations';
 
 export const SalesPage = () => {
   const {
@@ -30,6 +31,7 @@ export const SalesPage = () => {
   const [paymentMethod, setPaymentMethod] = useState('UPI');
   const [discount, setDiscount] = useState(0);
   const [taxRate, setTaxRate] = useState(12); // 12% GST
+  const [isInterState, setIsInterState] = useState(false);
   const [paymentMode, setPaymentMode] = useState('full'); // 'full' | 'partial' | 'credit'
   const [customPaidAmount, setCustomPaidAmount] = useState('');
 
@@ -48,18 +50,21 @@ export const SalesPage = () => {
 
   // --- Payment & Due Calculation Helpers ---
   const getSalePaid = (s) => (
-    s.paidAmount !== undefined
+    s?.status === 'Cancelled' ? 0 :
+    s?.paidAmount !== undefined
       ? Number(s.paidAmount) || 0
-      : (s.status === 'Completed' || s.status === 'Paid' ? Number(s.amount) || 0 : 0)
+      : (s?.status === 'Completed' || s?.status === 'Paid' ? Number(s?.amount) || 0 : 0)
   );
 
   const getSaleDue = (s) => (
-    s.dueAmount !== undefined
+    s?.status === 'Cancelled' ? 0 :
+    s?.dueAmount !== undefined
       ? Number(s.dueAmount) || 0
-      : Math.max(0, (Number(s.amount) || 0) - getSalePaid(s))
+      : Math.max(0, (Number(s?.amount) || 0) - getSalePaid(s))
   );
 
   const getSaleStatus = (s) => {
+    if (s?.status === 'Cancelled') return 'Cancelled';
     const due = getSaleDue(s);
     const paid = getSalePaid(s);
     if (due <= 0) return 'Paid';
@@ -68,9 +73,10 @@ export const SalesPage = () => {
   };
 
   // --- KPI Aggregates ---
-  const totalBilled = useMemo(() => sales.reduce((acc, s) => acc + (Number(s.amount) || 0), 0), [sales]);
-  const totalReceived = useMemo(() => sales.reduce((acc, s) => acc + getSalePaid(s), 0), [sales]);
-  const totalDue = useMemo(() => sales.reduce((acc, s) => acc + getSaleDue(s), 0), [sales]);
+  const activeSales = useMemo(() => sales.filter(s => s?.status !== 'Cancelled'), [sales]);
+  const totalBilled = useMemo(() => activeSales.reduce((acc, s) => acc + (Number(s.amount) || 0), 0), [activeSales]);
+  const totalReceived = useMemo(() => activeSales.reduce((acc, s) => acc + getSalePaid(s), 0), [activeSales]);
+  const totalDue = useMemo(() => activeSales.reduce((acc, s) => acc + getSaleDue(s), 0), [activeSales]);
 
   // Filtered sales (Safe against undefined properties & malformed data)
   const filteredSales = useMemo(() => {
@@ -107,7 +113,6 @@ const calculatedItems = useMemo(() => {
     const p = products.find(x => String(x.id) === String(item.productId));
     const price = p ? Number(p.price) || 0 : 0;
     const qty = Math.max(0.01, parseFloat(item.qty) || 1);
-    const total = price * qty;
     const availableStock = p ? p.stock : 0;
     const gstRate = p?.gstRate !== undefined ? Number(p.gstRate) : Number(taxRate);
     return {
@@ -115,9 +120,9 @@ const calculatedItems = useMemo(() => {
       name: p?.name || 'Selected Product',
       qty,
       price,
-      total,
       availableStock,
-      gstRate
+      gstRate,
+      discount: item.discount || 0
     };
   });
 }, [cartItems, products, taxRate]);
@@ -126,11 +131,16 @@ const hasStockErrors = useMemo(() => {
   return calculatedItems.some(i => i.qty > i.availableStock);
 }, [calculatedItems]);
 
-const subtotal = calculatedItems.reduce((acc, i) => acc + i.total, 0);
-const discountVal = Math.min(subtotal, Math.max(0, Number(discount) || 0));
-const taxable = Math.max(0, subtotal - discountVal);
-const taxVal = Math.round(taxable * (Number(taxRate) / 100));
-const grandTotal = taxable + taxVal;
+// Unified calculation engine across preview and saved sales
+const saleTotals = useMemo(() => {
+  return calculateSaleTotals(calculatedItems, discount, taxRate, { isInterState });
+}, [calculatedItems, discount, taxRate, isInterState]);
+
+const subtotal = saleTotals.subtotal;
+const discountVal = saleTotals.discount;
+const taxable = saleTotals.taxableAmount;
+const taxVal = saleTotals.tax;
+const grandTotal = saleTotals.amount;
 
 // New Sale: Compute paid amount & due balance based on mode
 const effectivePaidNow = useMemo(() => {
@@ -156,6 +166,7 @@ const handleOpenNewSale = () => {
   setCustomPaidAmount('');
   setDiscount(0);
   setTaxRate(12);
+  setIsInterState(false);
 
   if (availableProducts.length > 0) {
     setCartItems([{ productId: availableProducts[0].id, qty: 1 }]);
@@ -227,10 +238,15 @@ const handleSubmitSale = (e) => {
       qty: i.qty,
       price: i.price,
       gstRate: i.gstRate !== undefined ? i.gstRate : Number(taxRate) || 0,
-      discount: 0
+      discount: i.discount || 0
     })),
     subtotal,
+    taxableAmount: taxable,
     tax: taxVal,
+    cgst: saleTotals.cgst,
+    sgst: saleTotals.sgst,
+    igst: saleTotals.igst,
+    isInterState,
     taxRate: Number(taxRate) || 0,
     discount: discountVal,
     amount: grandTotal,
@@ -914,6 +930,22 @@ return (
                   </div>
 
                   <div className="d-flex align-items-center justify-content-between mb-2">
+                    <span className="text-secondary">Transaction Type:</span>
+                    <div className="form-check form-switch mb-0">
+                      <input
+                        className="form-check-input"
+                        type="checkbox"
+                        id="isInterStateSwitch"
+                        checked={isInterState}
+                        onChange={(e) => setIsInterState(e.target.checked)}
+                      />
+                      <label className="form-check-label text-white small" htmlFor="isInterStateSwitch">
+                        {isInterState ? 'Inter-State (IGST)' : 'Intra-State (CGST+SGST)'}
+                      </label>
+                    </div>
+                  </div>
+
+                  <div className="d-flex align-items-center justify-content-between mb-2">
                     <span className="text-secondary">GST Tax Rate:</span>
                     <select
                       className="form-select form-select-sm bg-input border-secondary text-white text-end"
@@ -930,9 +962,27 @@ return (
                   </div>
 
                   <div className="d-flex justify-content-between mb-2">
-                    <span className="text-secondary">Calculated Tax:</span>
-                    <span className="text-white fw-medium">₹{taxVal.toLocaleString('en-IN')}</span>
+                    <span className="text-secondary">Taxable Amount:</span>
+                    <span className="text-white fw-medium">₹{taxable.toLocaleString('en-IN')}</span>
                   </div>
+
+                  {isInterState ? (
+                    <div className="d-flex justify-content-between mb-2">
+                      <span className="text-secondary">IGST:</span>
+                      <span className="text-white fw-medium">₹{saleTotals.igst.toLocaleString('en-IN')}</span>
+                    </div>
+                  ) : (
+                    <>
+                      <div className="d-flex justify-content-between mb-1">
+                        <span className="text-secondary">CGST:</span>
+                        <span className="text-white fw-medium">₹{saleTotals.cgst.toLocaleString('en-IN')}</span>
+                      </div>
+                      <div className="d-flex justify-content-between mb-2">
+                        <span className="text-secondary">SGST:</span>
+                        <span className="text-white fw-medium">₹{saleTotals.sgst.toLocaleString('en-IN')}</span>
+                      </div>
+                    </>
+                  )}
 
                   <div className="d-flex justify-content-between pt-2 border-top border-secondary">
                     <span className="fw-bold text-white fs-5">Grand Total:</span>

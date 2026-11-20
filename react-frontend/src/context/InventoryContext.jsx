@@ -186,7 +186,7 @@ export const InventoryProvider = ({ children }) => {
     confirmText: 'Confirm',
     cancelText: 'Cancel',
     confirmVariant: 'danger',
-    onConfirm: () => {}
+    onConfirm: () => { }
   });
 
   const openConfirm = useCallback(({
@@ -305,7 +305,7 @@ export const InventoryProvider = ({ children }) => {
 
     setUsers(authService.getStoredUsers());
     addAuditLog('User Registered', `New tenant registered: ${result.user.name} (${result.user.email}) - PBKDF2 hashed`, 'Success', result.user.name, result.user.role);
-    
+
     if (result.requiresEmailConfirmation) {
       showToast('Confirmation Required', 'Account created! Please check your email to confirm registration before logging in.', 'info');
     } else {
@@ -560,6 +560,28 @@ export const InventoryProvider = ({ children }) => {
     return res;
   };
 
+  const refundPayment = ({ saleId, amount, reason = '', idempotencyKey = null }) => {
+    const res = paymentService.refundPayment({
+      saleId,
+      amount,
+      reason,
+      user: user?.name || 'Admin',
+      idempotencyKey
+    });
+
+    if (!res.success) {
+      showToast('Refund Error', res.message, 'danger');
+      return res;
+    }
+
+    setSales(salesService.getAll());
+    setCustomers(customerService.getAll());
+
+    addAuditLog('Payment Refunded', `Refunded ₹${Number(amount).toLocaleString('en-IN')} for Invoice #${saleId}`);
+    showToast('Refund Processed', `Refunded ₹${Number(amount).toLocaleString('en-IN')} for Invoice #${saleId}.`, 'info');
+    return res;
+  };
+
   // --------------------------------------------------------------------------
   // PURCHASES & SUPPLIERS (purchaseService & supplierService)
   // --------------------------------------------------------------------------
@@ -581,6 +603,25 @@ export const InventoryProvider = ({ children }) => {
 
     syncChannel.broadcast('PURCHASE_COMPLETED', { poId: purchase.id });
     return purchase;
+  };
+
+  const receivePurchase = (purchaseId) => {
+    const res = purchaseService.receivePurchase(purchaseId, user?.name || 'Admin');
+    if (!res.success) {
+      showToast('PO Receipt Error', res.message, 'warning');
+      return res;
+    }
+
+    setPurchases(purchaseService.getAll());
+    setProducts(productService.getAll());
+    setSuppliers(supplierService.getAll());
+    setCategories(categoryService.getCategories());
+
+    addAuditLog('Purchase Received', `PO #${purchaseId} received and stocked.`);
+    showToast('PO Received', `Order #${purchaseId} marked as Received. Stock added to catalog.`, 'success');
+
+    syncChannel.broadcast('PURCHASE_RECEIVED', { poId: purchaseId });
+    return res;
   };
 
   const addSupplier = (suppData) => {
@@ -746,12 +787,14 @@ export const InventoryProvider = ({ children }) => {
     createSale,
     cancelSale,
     recordPayment,
+    refundPayment,
     isProcessingSale,
 
     // Purchases & Suppliers
     purchases,
     setPurchases,
     createPurchase,
+    receivePurchase,
     suppliers,
     setSuppliers,
     addSupplier,

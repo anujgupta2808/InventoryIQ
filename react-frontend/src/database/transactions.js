@@ -5,7 +5,7 @@
 
 import { openShopDatabase } from './db.js';
 import { STORES } from './schema.js';
-import { roundTo, toPaise, fromPaise, aggregateSaleItems } from '../utils/calculations.js';
+import { roundTo, toPaise, fromPaise, aggregateSaleItems, calculateSaleTotals } from '../utils/calculations.js';
 
 // In-flight transaction locks to prevent double-click / concurrent double-sales
 const inFlightOperations = new Set();
@@ -215,13 +215,27 @@ export async function executeSaleAtomic(shopId, saleData, user = { name: 'Admin'
         });
       }
 
-      // Calculate invoice totals
-      const overallDiscountPaise = Math.min(
-        totalCalculatedSubtotalPaise,
-        toPaise(saleData.discount || 0)
+      // Calculate invoice totals using single authoritative calculation engine
+      const isInterState = Boolean(saleData.isInterState);
+      const calculatedSaleTotals = calculateSaleTotals(
+        normalizedLines.map(line => ({
+          productId: line.productId || line.id,
+          name: line.name,
+          price: line.price,
+          qty: line.qty,
+          gstRate: line.gstRate !== undefined ? line.gstRate : (saleData.taxRate || 0),
+          discount: line.discount || 0
+        })),
+        saleData.discount || 0,
+        saleData.taxRate || 0,
+        {
+          isInterState,
+          discountType: saleData.discountType || 'fixed'
+        }
       );
-      const grandTotalPaise = Math.max(0, totalCalculatedSubtotalPaise - overallDiscountPaise + totalTaxPaise);
-      const grandTotal = fromPaise(grandTotalPaise);
+
+      const grandTotalPaise = calculatedSaleTotals.amountPaise;
+      const grandTotal = calculatedSaleTotals.amount;
 
       const requestedPaidPaise = toPaise(saleData.paidAmount || 0);
       const actualPaidPaise = Math.min(grandTotalPaise, Math.max(0, requestedPaidPaise));
@@ -241,9 +255,14 @@ export async function executeSaleAtomic(shopId, saleData, user = { name: 'Admin'
         customerEmail: String(saleData.customerEmail || '').trim(),
         customerAddress: String(saleData.customerAddress || '').trim(),
         items: enrichedItems,
-        subtotal: fromPaise(totalCalculatedSubtotalPaise),
-        discount: fromPaise(overallDiscountPaise),
-        tax: fromPaise(totalTaxPaise),
+        subtotal: calculatedSaleTotals.subtotal,
+        taxableAmount: calculatedSaleTotals.taxableAmount,
+        discount: calculatedSaleTotals.discount,
+        tax: calculatedSaleTotals.tax,
+        cgst: calculatedSaleTotals.cgst,
+        sgst: calculatedSaleTotals.sgst,
+        igst: calculatedSaleTotals.igst,
+        isInterState,
         amount: grandTotal,
         paidAmount,
         dueAmount,
@@ -257,7 +276,9 @@ export async function executeSaleAtomic(shopId, saleData, user = { name: 'Admin'
 
       // Record payment & update customer balance if payment made
       if (paidAmount > 0) {
-        const paymentId = `PAY-${Date.now().toString().slice(-6)}`;
+        const paymentId = (typeof crypto !== 'undefined' && crypto.randomUUID)
+          ? `PAY-${crypto.randomUUID()}`
+          : `PAY-${Date.now()}-${Math.floor(1000 + Math.random() * 9000)}`;
         const paymentRecord = {
           id: paymentId,
           partyId: saleData.customerId || null,

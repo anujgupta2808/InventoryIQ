@@ -32,13 +32,27 @@ export class SalesService {
 
     // 1. Normalize duplicate product lines to prevent stock deduction glitches
     const rawItems = Array.isArray(saleData.items) ? saleData.items : [];
-    const normalizedItems = aggregateSaleItems(rawItems);
+    const enrichedRawItems = rawItems.map(item => {
+      const p = products.find(prod => String(prod.id) === String(item.productId));
+      return {
+        ...item,
+        name: item.name || p?.name || 'Product',
+        price: item.price !== undefined ? Number(item.price) : (p ? Number(p.price) : 0),
+        gstRate: item.gstRate !== undefined ? Number(item.gstRate) : (p?.gstRate !== undefined ? Number(p.gstRate) : Number(saleData.taxRate || 0))
+      };
+    });
+    const normalizedItems = aggregateSaleItems(enrichedRawItems);
 
     // 2. Server-authoritative totals (never trust client total)
+    const isInterState = Boolean(saleData.isInterState);
     const totals = calculateSaleTotals(
       normalizedItems,
       saleData.discount || 0,
-      saleData.taxRate || 0
+      saleData.taxRate || 0,
+      {
+        isInterState,
+        discountType: saleData.discountType || 'fixed'
+      }
     );
     const saleAmount = totals.amount;
 
@@ -47,7 +61,12 @@ export class SalesService {
       items: normalizedItems,
       amount: saleAmount,
       subtotal: totals.subtotal,
+      taxableAmount: totals.taxableAmount,
       tax: totals.tax,
+      cgst: totals.cgst,
+      sgst: totals.sgst,
+      igst: totals.igst,
+      isInterState,
       discount: totals.discount
     };
 
@@ -159,7 +178,12 @@ export class SalesService {
         customerAddress: (saleData.customerAddress || '').trim(),
         items: enrichedItems,
         subtotal: totals.subtotal,
+        taxableAmount: totals.taxableAmount,
         tax: totals.tax,
+        cgst: totals.cgst,
+        sgst: totals.sgst,
+        igst: totals.igst,
+        isInterState,
         discount: totals.discount,
         amount: saleAmount,
         paidAmount,
@@ -237,6 +261,24 @@ export class SalesService {
     });
 
     storageService.setCollection('PRODUCTS', updatedProducts);
+
+    // If sale had any payment recorded, record a refund payment to ledger
+    if (Number(sale.paidAmount) > 0) {
+      paymentService.recordPayment({
+        saleId: sale.id,
+        customerId: sale.customerId || null,
+        customerName: sale.customerName || 'Walk-in Customer',
+        amount: -Number(sale.paidAmount),
+        paymentMethod: sale.paymentMethod || 'UPI',
+        note: `Refund on invoice cancellation #${sale.id}`,
+        user
+      });
+    }
+
+    // Sync Customer ledger & reconcile balances
+    customerService.syncFromSaleCancellation(sale);
+    customerService.reconcileBalances();
+
     const updatedSale = storageService.updateItem(this.collectionName, saleId, {
       status: 'Cancelled',
       cancelledAt: new Date().toISOString(),

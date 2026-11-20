@@ -11,8 +11,11 @@ import { isWithinDateRange } from '../utils/dateUtils.js';
 export class AnalyticsService {
   getKPIs() {
     const products = storageService.getCollection('PRODUCTS');
-    const sales = storageService.getCollection('SALES');
+    const allSales = storageService.getCollection('SALES');
     const purchases = storageService.getCollection('PURCHASES');
+
+    // Financial KPIs must strictly exclude cancelled invoices
+    const sales = allSales.filter(s => s.status !== 'Cancelled');
 
     const totalSalesVal = roundTo(sales.reduce((acc, s) => acc + (Number(s.amount) || 0), 0));
     const totalReceivedVal = roundTo(sales.reduce((acc, s) => {
@@ -74,6 +77,9 @@ export class AnalyticsService {
       purchases = purchases.filter(p => isWithinDateRange(p.createdAt || p.date, startDate, endDate));
     }
 
+    // Exclude cancelled sales from revenue and analytics reports
+    sales = sales.filter(s => s.status !== 'Cancelled');
+
     // Filter sales by category if requested
     if (category && category !== 'All') {
       sales = sales.filter(s => 
@@ -101,7 +107,7 @@ export class AnalyticsService {
   }
 
   getTopSellingProducts(limit = 5) {
-    const sales = storageService.getCollection('SALES');
+    const sales = storageService.getCollection('SALES').filter(s => s.status !== 'Cancelled');
     const products = storageService.getCollection('PRODUCTS');
     const salesCountMap = {};
 
@@ -151,7 +157,8 @@ export class AnalyticsService {
       date: p.date || p.createdAt
     }));
 
-    const combined = [...formattedSales, ...formattedPurchases];
+    const combined = [...formattedSales, ...formattedPurchases]
+      .sort((a, b) => new Date(b.date || 0) - new Date(a.date || 0));
     return combined.slice(0, limit);
   }
 }

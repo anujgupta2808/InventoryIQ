@@ -141,14 +141,37 @@ export class CustomerService {
     }
   }
 
+  syncFromSaleCancellation(saleData) {
+    const custId = saleData.customerId ? String(saleData.customerId) : null;
+    const custName = (saleData.customerName || '').trim();
+    if (!custName || custName.toLowerCase() === 'walk-in customer') return null;
+
+    let existing = custId ? this.getById(custId) : null;
+    if (!existing) {
+      existing = this.findByName(custName);
+    }
+    if (!existing) return null;
+
+    const saleAmount = Number(saleData.amount) || 0;
+    const dueAmount = Number(saleData.dueAmount) || 0;
+
+    const updated = storageService.updateItem(this.collectionName, existing.id, {
+      totalBilled: Math.max(0, Number(((Number(existing.totalBilled) || 0) - saleAmount).toFixed(2))),
+      currentDue: Math.max(0, Number(((Number(existing.currentDue) || 0) - dueAmount).toFixed(2)))
+    });
+    return updated;
+  }
+
   getCustomerLedger(nameOrId) {
     const sales = storageService.getCollection('SALES');
     const payments = storageService.getCollection('PAYMENTS');
     const target = String(nameOrId || '').trim().toLowerCase();
 
     const customerSales = sales.filter(s => 
-      (s.customerId && String(s.customerId) === target) ||
-      (s.customerName && s.customerName.trim().toLowerCase() === target)
+      s.status !== 'Cancelled' && (
+        (s.customerId && String(s.customerId) === target) ||
+        (s.customerName && s.customerName.trim().toLowerCase() === target)
+      )
     );
 
     const balances = calculateCustomerBalances(customerSales, target);
@@ -170,8 +193,10 @@ export class CustomerService {
 
     const reconciled = customers.map(c => {
       const matchSales = sales.filter(s =>
-        (s.customerId && String(s.customerId) === String(c.id)) ||
-        (s.customerName && String(s.customerName).trim().toLowerCase() === String(c.name).trim().toLowerCase())
+        s.status !== 'Cancelled' && (
+          (s.customerId && String(s.customerId) === String(c.id)) ||
+          (s.customerName && String(s.customerName).trim().toLowerCase() === String(c.name).trim().toLowerCase())
+        )
       );
       const matchPayments = payments.filter(p =>
         p.partyType === 'CUSTOMER' && (

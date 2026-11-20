@@ -11,6 +11,7 @@ import { validatePayment } from '../utils/validators.js';
 export class PaymentService {
   constructor() {
     this.collectionName = 'PAYMENTS';
+    this.processedKeys = new Map();
   }
 
   getAll() {
@@ -37,6 +38,7 @@ export class PaymentService {
   recordPayment({
     saleId = null,
     purchaseId = null,
+    customerId = null,
     customerName = null,
     supplierName = null,
     partyType = null,
@@ -45,8 +47,12 @@ export class PaymentService {
     paymentMethod = 'UPI',
     transactionRef = '',
     note = '',
-    user = 'Admin'
+    user = 'Admin',
+    idempotencyKey = null
   }) {
+    if (idempotencyKey && this.processedKeys.has(idempotencyKey)) {
+      return { ...this.processedKeys.get(idempotencyKey), idempotentReplay: true };
+    }
     let resolvedCustomer = customerName || (partyType && String(partyType).toLowerCase() === 'customer' ? partyName : null);
     let resolvedSupplier = supplierName || (partyType && String(partyType).toLowerCase() === 'supplier' ? partyName : null);
 
@@ -135,27 +141,37 @@ export class PaymentService {
         storageService.insertItem(this.collectionName, advanceRecord);
       }
 
-      return {
+      const res = {
         success: true,
         paymentId,
         affectedSales: [saleId],
         sale: { ...sale, paidAmount: newPaid, dueAmount: newDue, status: newStatus },
         advance: advanceRecord
       };
+      if (idempotencyKey) {
+        this.processedKeys.set(idempotencyKey, res);
+      }
+      return res;
     }
 
     // Case 2: FIFO Settlement across customer's overdue sales
-    if (resolvedCustomer) {
-      const cleanTarget = resolvedCustomer.trim().toLowerCase();
+    if (resolvedCustomer || customerId) {
+      const cleanTarget = resolvedCustomer ? resolvedCustomer.trim().toLowerCase() : '';
+      const targetCustId = customerId ? String(customerId) : null;
       const sales = storageService.getCollection('SALES');
       let remainingToAllocate = payAmt;
       const affectedSales = [];
       const updatedSales = [...sales];
 
-      // Oldest to newest
+      // Oldest to newest (excluding cancelled sales)
       for (let i = updatedSales.length - 1; i >= 0 && remainingToAllocate > 0; i--) {
         const s = updatedSales[i];
-        if ((s.customerName || '').trim().toLowerCase() === cleanTarget) {
+        if (s.status === 'Cancelled') continue;
+
+        const matchesCust = (targetCustId && String(s.customerId) === targetCustId) ||
+          (cleanTarget && (s.customerName || '').trim().toLowerCase() === cleanTarget);
+
+        if (matchesCust) {
           const totalAmt = roundTo(Number(s.amount) || 0);
           const currentPaid = roundTo(Number(s.paidAmount !== undefined ? s.paidAmount : (s.status === 'Completed' || s.status === 'Paid' ? s.amount : 0)));
           const currentDue = roundTo(Math.max(0, totalAmt - currentPaid));
@@ -196,7 +212,8 @@ export class PaymentService {
       const paymentRecord = {
         id: paymentId,
         partyType: 'CUSTOMER',
-        partyName: resolvedCustomer,
+        partyName: resolvedCustomer || 'Customer',
+        customerId: targetCustId,
         referenceType: remainingToAllocate > 0 && affectedSales.length === 0 ? 'ADVANCE' : 'CUSTOMER_LEDGER',
         referenceId: affectedSales.join(', ') || `ADV-${dateStr.replace(/[^0-9a-zA-Z]/g, '')}`,
         amount: payAmt,
@@ -213,7 +230,7 @@ export class PaymentService {
       };
       storageService.insertItem(this.collectionName, paymentRecord);
 
-      return {
+      const res = {
         success: true,
         paymentId,
         payment: paymentRecord,
@@ -221,9 +238,166 @@ export class PaymentService {
         advanceAmount: remainingToAllocate,
         affectedSales
       };
+
+      if (idempotencyKey) {
+        this.processedKeys.set(idempotencyKey, res);
+      }
+      return res;
     }
 
     return { success: false, message: 'Either saleId, purchaseId, customerName, or partyName is required.' };
+  }
+
+  refundPayment({
+    saleId,
+    amount,
+    reason = 'Customer Refund',
+    user = 'Admin',
+    idempotencyKey = null
+  }) {
+    if (idempotencyKey && this.processedKeys.has(idempotencyKey)) {
+      return { ...this.processedKeys.get(idempotencyKey), idempotentReplay: true };
+    }
+
+    if (!saleId) {
+      return { success: false, message: 'Sale ID is required for refund processing.' };
+    }
+
+    const refundAmt = roundTo(Number(amount) || 0);
+    if (refundAmt <= 0 || isNaN(refundAmt) || !isFinite(refundAmt)) {
+      return { success: false, message: 'Refund amount must be a positive number.' };
+    }
+
+    const sales = storageService.getCollection('SALES');
+    const sale = sales.find(s => String(s.id) === String(saleId));
+    if (!sale) {
+      return { success: false, message: `Invoice #${saleId} not found.` };
+    }
+
+    if (sale.status === 'Cancelled') {
+      return { success: false, message: `Invoice #${saleId} is already cancelled.` };
+    }
+
+    const currentPaid = roundTo(Number(sale.paidAmount || 0));
+    if (currentPaid <= 0) {
+      return { success: false, message: `Invoice #${saleId} has no collected payments to refund.` };
+    }
+
+    if (refundAmt > currentPaid) {
+      return {
+        success: false,
+        message: `Refund amount (₹${refundAmt}) cannot exceed total paid amount (₹${currentPaid}).`
+      };
+    }
+
+    const now = new Date();
+    const dateStr = now.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+    const refundId = `REF-${Date.now()}-${Math.floor(100 + Math.random() * 900)}`;
+
+    const newPaid = roundTo(currentPaid - refundAmt);
+    const totalAmt = roundTo(Number(sale.amount || 0));
+    const newDue = roundTo(Math.max(0, totalAmt - newPaid));
+    const newStatus = newPaid <= 0 ? (totalAmt === 0 ? 'Paid' : 'Unpaid') : (newDue > 0 ? 'Partial' : 'Paid');
+
+    const refundHistoryEntry = {
+      id: refundId,
+      date: dateStr,
+      amount: -refundAmt,
+      method: 'REFUND',
+      note: reason || 'Customer refund'
+    };
+
+    const updatedSale = storageService.updateItem('SALES', saleId, {
+      paidAmount: newPaid,
+      dueAmount: newDue,
+      status: newStatus,
+      paymentHistory: [...(sale.paymentHistory || []), refundHistoryEntry]
+    });
+
+    const paymentRecord = {
+      id: refundId,
+      partyType: 'CUSTOMER',
+      partyName: sale.customerName || 'Customer',
+      customerId: sale.customerId || null,
+      referenceType: 'REFUND',
+      referenceId: String(saleId),
+      amount: -refundAmt,
+      paymentMethod: 'REFUND',
+      note: reason || `Refund issued for invoice #${saleId}`,
+      user,
+      date: dateStr,
+      createdAt: now.toISOString()
+    };
+    storageService.insertItem(this.collectionName, paymentRecord);
+
+    // Reconcile customer ledger balance if customer exists
+    if (sale.customerId || sale.customerName) {
+      const customers = storageService.getCollection('CUSTOMERS');
+      const cust = customers.find(c => 
+        (sale.customerId && String(c.id) === String(sale.customerId)) ||
+        (sale.customerName && c.name && c.name.trim().toLowerCase() === sale.customerName.trim().toLowerCase())
+      );
+      if (cust) {
+        const curReceived = Number(cust.totalReceived || 0);
+        const curDue = Number(cust.currentDue || 0);
+        storageService.updateItem('CUSTOMERS', cust.id, {
+          totalReceived: roundTo(Math.max(0, curReceived - refundAmt)),
+          currentDue: roundTo(curDue + refundAmt)
+        });
+      }
+    }
+
+    const res = {
+      success: true,
+      refundId,
+      refundAmount: refundAmt,
+      newPaidAmount: newPaid,
+      newDueAmount: newDue,
+      sale: updatedSale,
+      payment: paymentRecord
+    };
+
+    if (idempotencyKey) {
+      this.processedKeys.set(idempotencyKey, res);
+    }
+    return res;
+  }
+
+  reversePayment(paymentId, reason = 'Payment Reversal', user = 'Admin') {
+    const payment = storageService.getItemById(this.collectionName, paymentId);
+    if (!payment) {
+      return { success: false, message: `Payment record #${paymentId} not found.` };
+    }
+    if (payment.referenceType === 'REFUND' || Number(payment.amount) < 0) {
+      return { success: false, message: 'Cannot reverse a refund voucher.' };
+    }
+
+    if (payment.referenceType === 'SALE' && payment.referenceId) {
+      return this.refundPayment({
+        saleId: payment.referenceId,
+        amount: Math.abs(Number(payment.amount)),
+        reason: reason || `Reversal of payment #${paymentId}`,
+        user
+      });
+    }
+
+    // General ledger payment reversal
+    const revId = `REV-${Date.now()}`;
+    const revRecord = {
+      id: revId,
+      partyType: payment.partyType,
+      partyName: payment.partyName,
+      referenceType: 'REVERSAL',
+      referenceId: paymentId,
+      amount: -Math.abs(Number(payment.amount)),
+      paymentMethod: payment.paymentMethod || 'Adjustment',
+      note: reason,
+      user,
+      date: new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }),
+      createdAt: new Date().toISOString()
+    };
+    storageService.insertItem(this.collectionName, revRecord);
+    return { success: true, reversal: revRecord };
   }
 }
 
