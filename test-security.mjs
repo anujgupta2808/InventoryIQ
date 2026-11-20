@@ -256,6 +256,23 @@ assert(sqlContent.includes('amount >= 0'), 'PostgreSQL sales & purchases enforce
 assert(sqlContent.includes('unique_org_product_sku UNIQUE (organization_id, sku)'), 'Products have unique SKU per organization constraint');
 
 // --------------------------------------------------------------------------
+// TEST SUITE 9: Comprehensive RLS Policy Coverage & Anti-Spoofing
+// --------------------------------------------------------------------------
+console.log('\n[Suite 9: RLS Policy Completeness & Multi-Tenant Boundary]');
+assert(/CREATE POLICY "Org members can view categories"/i.test(sqlContent), 'Categories table has SELECT policy');
+assert(/CREATE POLICY "Authorized roles can insert categories"/i.test(sqlContent), 'Categories table has INSERT policy');
+assert(/CREATE POLICY "Authorized roles can update categories"/i.test(sqlContent), 'Categories table has UPDATE policy');
+assert(/CREATE POLICY "Only Owners and Admins can delete categories"/i.test(sqlContent), 'Categories table has DELETE policy');
+assert(/CREATE POLICY "Authenticated users can create organizations"/i.test(sqlContent), 'Organizations table has INSERT policy');
+assert(/CREATE POLICY "Authorized roles can insert purchase items"/i.test(sqlContent), 'Purchase items table has INSERT policy');
+assert(/CREATE POLICY "Authorized roles can update purchase items"/i.test(sqlContent), 'Purchase items table has UPDATE policy');
+assert(/CREATE POLICY "Only Owners and Admins can delete purchase items"/i.test(sqlContent), 'Purchase items table has DELETE policy');
+assert(/CREATE POLICY "Admins and Owners can update sale items"/i.test(sqlContent), 'Sale items table has UPDATE policy');
+assert(/CREATE POLICY "Only Owners and Admins can delete sale items"/i.test(sqlContent), 'Sale items table has DELETE policy');
+assert(/CREATE OR REPLACE FUNCTION public\.is_org_member/i.test(sqlContent), 'Multi-tenant helper function is_org_member is defined');
+assert(/CREATE OR REPLACE FUNCTION public\.prevent_role_escalation/i.test(sqlContent), 'Role escalation prevention trigger function is defined');
+
+// --------------------------------------------------------------------------
 // SUMMARY
 // --------------------------------------------------------------------------
 console.log('\n======================================================');

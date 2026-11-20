@@ -113,20 +113,22 @@ class StorageService {
     // Asynchronously synchronize with IndexedDB (No localStorage!)
     const storeName = this.getStoreName(name);
     if (this.activeShopId) {
-      clearStore(this.activeShopId, storeName)
+      return clearStore(this.activeShopId, storeName)
         .then(async () => {
           for (const item of arrayData) {
             if (item && item.id !== undefined && item.id !== null) {
               await putRecord(this.activeShopId, storeName, { ...item, id: String(item.id) });
             }
           }
+          return true;
         })
         .catch(err => {
           console.warn(`[StorageService] Background sync error for ${storeName}:`, err);
+          return false;
         });
     }
 
-    return true;
+    return Promise.resolve(true);
   }
 
   getItemById(name, id) {
@@ -216,6 +218,17 @@ class StorageService {
     });
 
     return true;
+  }
+
+  /**
+   * Complete memory cache cleanup on session termination / logout
+   * Prevents memory-resident data leakage across multiple users on same browser
+   */
+  clearMemoryCache() {
+    this.memoryCache.clear();
+    this._initEmptyCache();
+    this.activeShopId = 'default_shop';
+    this.initialized = false;
   }
 }
 

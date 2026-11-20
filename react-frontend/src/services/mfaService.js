@@ -156,6 +156,10 @@ export class MFAService {
     return this.challengeAndVerify({ factorId, code });
   }
 
+  async verifyChallenge({ factorId, code }) {
+    return this.challengeAndVerify({ factorId, code });
+  }
+
   /**
    * Unenroll / Disable TOTP MFA
    */

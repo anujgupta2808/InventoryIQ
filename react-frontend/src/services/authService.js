@@ -16,7 +16,7 @@ import {
   isSessionExpired
 } from '../utils/cryptoAuth.js';
 import { safeGet, safeSet } from '../utils/storageUtils.js';
-import { STORAGE_KEYS } from './storageService.js';
+import { STORAGE_KEYS, storageService } from './storageService.js';
 import { DEFAULT_USERS } from '../data/seedData.js';
 import { isValidEmail, isValidGSTIN } from '../utils/validators.js';
 
@@ -637,6 +637,7 @@ export class AuthService {
       localStorage.removeItem(this.legacySessionKey);
       sessionStorage.removeItem(this.sessionStorageKey);
       sessionStorage.removeItem(this.legacySessionKey);
+      storageService.clearMemoryCache();
     } catch (e) {
       console.warn('Logout cleanup error:', e);
     }

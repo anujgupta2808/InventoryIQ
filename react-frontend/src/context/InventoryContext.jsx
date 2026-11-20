@@ -394,6 +394,12 @@ export const InventoryProvider = ({ children }) => {
     setUser(null);
     setSessions([]);
     setDemoResetSession(null);
+    setProducts([]);
+    setSales([]);
+    setPurchases([]);
+    setCustomers([]);
+    setSuppliers([]);
+    setCategories([]);
     setCurrentPage('login');
     showToast('Signed Out', 'You have been safely signed out.', 'info');
   };

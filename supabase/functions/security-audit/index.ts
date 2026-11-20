@@ -25,9 +25,38 @@ serve(async (req) => {
     const supabaseAdmin = createClient(supabaseUrl, supabaseServiceKey);
 
     const token = authHeader.replace("Bearer ", "");
-    const { data: { user } } = await supabaseAdmin.auth.getUser(token);
+    const { data: { user }, error: userError } = await supabaseAdmin.auth.getUser(token);
+
+    if (userError || !user) {
+      return new Response(JSON.stringify({ error: "Unauthorized" }), {
+        status: 401,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
 
     const { organizationId, action, details, status = "Success" } = await req.json();
+
+    if (!organizationId) {
+      return new Response(JSON.stringify({ error: "Missing organizationId" }), {
+        status: 400,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    // Verify user is an authorized member of this organization (Anti-Spoofing Guard)
+    const { data: member } = await supabaseAdmin
+      .from("organization_members")
+      .select("role")
+      .eq("organization_id", organizationId)
+      .eq("user_id", user.id)
+      .single();
+
+    if (!member) {
+      return new Response(JSON.stringify({ error: "Forbidden: Not an authorized member of this organization" }), {
+        status: 403,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
 
     const clientIp = req.headers.get("x-forwarded-for") || req.headers.get("cf-connecting-ip") || "unknown";
     const userAgent = req.headers.get("user-agent") || "unknown";
@@ -35,9 +64,9 @@ serve(async (req) => {
     // Insert server audit log
     const { data, error } = await supabaseAdmin.from("audit_logs").insert({
       organization_id: organizationId,
-      user_id: user ? user.id : null,
-      user_name: user?.user_metadata?.full_name || user?.email || "System",
-      user_role: user?.user_metadata?.role || "User",
+      user_id: user.id,
+      user_name: user?.user_metadata?.full_name || user?.email || "Staff",
+      user_role: member.role || "staff",
       action,
       details,
       status,

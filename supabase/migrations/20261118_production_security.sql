@@ -339,6 +339,10 @@ CREATE POLICY "Users can update their own profile"
     USING (auth.uid() = id);
 
 -- 2. Organizations Policies
+CREATE POLICY "Authenticated users can create organizations"
+    ON public.organizations FOR INSERT
+    WITH CHECK (auth.uid() IS NOT NULL);
+
 CREATE POLICY "Members can view their organization"
     ON public.organizations FOR SELECT
     USING (public.is_org_member(id));
@@ -380,7 +384,33 @@ CREATE POLICY "Owners can remove members, Admins can remove Manager/Staff"
         OR (public.get_org_role(organization_id) = 'admin' AND role IN ('manager', 'staff'))
     );
 
--- 4. Products Policies
+-- 4. Categories Policies
+CREATE POLICY "Org members can view categories"
+    ON public.categories FOR SELECT
+    USING (public.is_org_member(organization_id));
+
+CREATE POLICY "Authorized roles can insert categories"
+    ON public.categories FOR INSERT
+    WITH CHECK (
+        public.is_org_member(organization_id)
+        AND public.get_org_role(organization_id) IN ('owner', 'admin', 'manager')
+    );
+
+CREATE POLICY "Authorized roles can update categories"
+    ON public.categories FOR UPDATE
+    USING (
+        public.is_org_member(organization_id)
+        AND public.get_org_role(organization_id) IN ('owner', 'admin', 'manager')
+    );
+
+CREATE POLICY "Only Owners and Admins can delete categories"
+    ON public.categories FOR DELETE
+    USING (
+        public.is_org_member(organization_id)
+        AND public.get_org_role(organization_id) IN ('owner', 'admin')
+    );
+
+-- 5. Products Policies
 CREATE POLICY "Org members can view products"
     ON public.products FOR SELECT
     USING (public.is_org_member(organization_id));
@@ -441,7 +471,25 @@ CREATE POLICY "Authorized members can create sale items"
         AND public.is_org_member(sales.organization_id)
     ));
 
--- 6. Purchases & Line Items Policies
+CREATE POLICY "Admins and Owners can update sale items"
+    ON public.sale_items FOR UPDATE
+    USING (EXISTS (
+        SELECT 1 FROM public.sales
+        WHERE sales.id = sale_items.sale_id
+        AND public.is_org_member(sales.organization_id)
+        AND public.get_org_role(sales.organization_id) IN ('owner', 'admin')
+    ));
+
+CREATE POLICY "Only Owners and Admins can delete sale items"
+    ON public.sale_items FOR DELETE
+    USING (EXISTS (
+        SELECT 1 FROM public.sales
+        WHERE sales.id = sale_items.sale_id
+        AND public.is_org_member(sales.organization_id)
+        AND public.get_org_role(sales.organization_id) IN ('owner', 'admin')
+    ));
+
+-- 7. Purchases & Line Items Policies
 CREATE POLICY "Org members can view purchases"
     ON public.purchases FOR SELECT
     USING (public.is_org_member(organization_id));
@@ -466,6 +514,33 @@ CREATE POLICY "Org members can view purchase items"
         SELECT 1 FROM public.purchases
         WHERE purchases.id = purchase_items.purchase_id
         AND public.is_org_member(purchases.organization_id)
+    ));
+
+CREATE POLICY "Authorized roles can insert purchase items"
+    ON public.purchase_items FOR INSERT
+    WITH CHECK (EXISTS (
+        SELECT 1 FROM public.purchases
+        WHERE purchases.id = purchase_items.purchase_id
+        AND public.is_org_member(purchases.organization_id)
+        AND public.get_org_role(purchases.organization_id) IN ('owner', 'admin', 'manager')
+    ));
+
+CREATE POLICY "Authorized roles can update purchase items"
+    ON public.purchase_items FOR UPDATE
+    USING (EXISTS (
+        SELECT 1 FROM public.purchases
+        WHERE purchases.id = purchase_items.purchase_id
+        AND public.is_org_member(purchases.organization_id)
+        AND public.get_org_role(purchases.organization_id) IN ('owner', 'admin', 'manager')
+    ));
+
+CREATE POLICY "Only Owners and Admins can delete purchase items"
+    ON public.purchase_items FOR DELETE
+    USING (EXISTS (
+        SELECT 1 FROM public.purchases
+        WHERE purchases.id = purchase_items.purchase_id
+        AND public.is_org_member(purchases.organization_id)
+        AND public.get_org_role(purchases.organization_id) IN ('owner', 'admin')
     ));
 
 -- 7. Customers & Suppliers Policies

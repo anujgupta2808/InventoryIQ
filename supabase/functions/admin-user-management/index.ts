@@ -61,6 +61,14 @@ serve(async (req) => {
         });
       }
 
+      // Administrators cannot create other administrators or alter owners
+      if (memberRecord.role === "admin" && (newRole === "admin" || newRole === "owner")) {
+        return new Response(JSON.stringify({ error: "Forbidden: Administrators cannot assign admin or owner roles" }), {
+          status: 403,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+
       await supabaseAdmin
         .from("organization_members")
         .update({ role: newRole })
@@ -93,6 +101,13 @@ serve(async (req) => {
 
       if (targetMember?.role === "owner") {
         return new Response(JSON.stringify({ error: "Cannot remove organization owner" }), {
+          status: 403,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+
+      if (memberRecord.role === "admin" && targetMember?.role === "admin") {
+        return new Response(JSON.stringify({ error: "Forbidden: Administrators cannot remove other administrators" }), {
           status: 403,
           headers: { ...corsHeaders, "Content-Type": "application/json" },
         });
