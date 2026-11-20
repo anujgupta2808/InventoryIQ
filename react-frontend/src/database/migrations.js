@@ -111,12 +111,12 @@ export class MigrationEngine {
       return backupPayload;
     }
 
-    // Upgrade v1 legacy backup payload to v2 standard
-    const data = backupPayload.data || backupPayload;
+    // Upgrade legacy backup payload to v2 standard
+    const data = backupPayload.data || backupPayload.stores || backupPayload;
     const upgraded = {
       format: 'InventoryIQ Backup',
       version: '2.0',
-      shopId: backupPayload.shopId || data._meta?.organizationId || 'default_shop',
+      shopId: backupPayload.shopId || data._meta?.organizationId || data._meta?.shopId || 'default_shop',
       exportedAt: backupPayload.exportedAt || data._meta?.exportedAt || new Date().toISOString(),
       applicationVersion: '2.0.0',
       data: {

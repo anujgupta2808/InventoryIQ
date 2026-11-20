@@ -4,7 +4,7 @@
  * Strictly eliminates localStorage as a source of truth for business data.
  */
 
-import { openShopDatabase, getAllRecords, putRecord, deleteRecord, clearStore } from '../database/db.js';
+import { openShopDatabase, getAllRecords, putRecord, deleteRecord, clearStore, replaceStoreData, atomicMultiStoreWrite } from '../database/db.js';
 import { STORES, ALL_STORES } from '../database/schema.js';
 
 export const SCHEMA_VERSION = 4;
@@ -22,6 +22,8 @@ class StorageService {
     // Fast in-memory cache to support synchronous reads from React components
     this.memoryCache = new Map();
     this.initialized = false;
+    this._writeLock = Promise.resolve();
+    this._lastBackupSnapshot = null;
     this._initEmptyCache();
   }
 
@@ -110,20 +112,13 @@ class StorageService {
     const arrayData = Array.isArray(data) ? data : [];
     this.memoryCache.set(key, arrayData);
 
-    // Asynchronously synchronize with IndexedDB (No localStorage!)
+    // ATOMIC REPLACEMENT: Synchronize with IndexedDB using a single transaction.
+    // Completely eliminates unsafe clear-and-repopulate race conditions.
     const storeName = this.getStoreName(name);
     if (this.activeShopId) {
-      return clearStore(this.activeShopId, storeName)
-        .then(async () => {
-          for (const item of arrayData) {
-            if (item && item.id !== undefined && item.id !== null) {
-              await putRecord(this.activeShopId, storeName, { ...item, id: String(item.id) });
-            }
-          }
-          return true;
-        })
+      return replaceStoreData(this.activeShopId, storeName, arrayData)
         .catch(err => {
-          console.warn(`[StorageService] Background sync error for ${storeName}:`, err);
+          console.warn(`[StorageService] Atomic background sync error for ${storeName}:`, err);
           return false;
         });
     }
@@ -218,6 +213,150 @@ class StorageService {
     });
 
     return true;
+  }
+
+  /**
+   * Concurrency lock to serialize asynchronous write batches
+   */
+  async queueWrite(operation) {
+    this._writeLock = this._writeLock.then(async () => {
+      try {
+        return await operation();
+      } catch (err) {
+        console.warn('[StorageService] Queued operation failed:', err);
+        throw err;
+      }
+    });
+    return this._writeLock;
+  }
+
+  /**
+   * Generates a full data export bundle from current active memory and IndexedDB state.
+   */
+  exportAllData() {
+    const collections = [
+      'PRODUCTS', 'CATEGORIES', 'SALES', 'SALE_ITEMS',
+      'PURCHASES', 'PURCHASE_ITEMS', 'CUSTOMERS', 'SUPPLIERS',
+      'PAYMENTS', 'STOCK_MOVEMENTS', 'AUDIT_LOGS', 'SETTINGS'
+    ];
+
+    const bundle = {
+      _meta: {
+        schemaVersion: SCHEMA_VERSION,
+        applicationVersion: '2.0.0',
+        exportedAt: new Date().toISOString(),
+        shopId: this.activeShopId
+      }
+    };
+
+    collections.forEach(col => {
+      const storeKey = col.toLowerCase();
+      // Use camelCase for saleItems, purchaseItems, stockMovements, auditLogs
+      let propName = storeKey;
+      if (col === 'SALE_ITEMS') propName = 'saleItems';
+      else if (col === 'PURCHASE_ITEMS') propName = 'purchaseItems';
+      else if (col === 'STOCK_MOVEMENTS') propName = 'stockMovements';
+      else if (col === 'AUDIT_LOGS') propName = 'auditLogs';
+
+      bundle[propName] = this.getCollection(col, []);
+    });
+
+    return bundle;
+  }
+
+  /**
+   * Imports an archive snapshot into memory and IndexedDB atomically.
+   * If any store fails or aborts, memory cache and IndexedDB roll back to pre-restore snapshot.
+   */
+  async importAllData(bundle, options = { merge: false, backup: true }) {
+    if (!bundle || typeof bundle !== 'object') {
+      throw new Error('Invalid bundle provided to importAllData');
+    }
+
+    // 1. Take safety snapshot of current memory cache before writing
+    const preSnapshot = new Map();
+    this.memoryCache.forEach((val, k) => {
+      preSnapshot.set(k, Array.isArray(val) ? [...val] : val);
+    });
+    this._lastBackupSnapshot = preSnapshot;
+
+    // 2. Extract collections from bundle (handles both root keys and bundle.data / bundle.stores)
+    const sourceData = bundle.data || bundle.stores || bundle;
+
+    const storeMapping = [
+      { key: 'PRODUCTS', prop: 'products', storeName: STORES.PRODUCTS },
+      { key: 'CATEGORIES', prop: 'categories', storeName: STORES.CATEGORIES },
+      { key: 'SALES', prop: 'sales', storeName: STORES.SALES },
+      { key: 'SALE_ITEMS', prop: 'saleItems', storeName: STORES.SALE_ITEMS },
+      { key: 'PURCHASES', prop: 'purchases', storeName: STORES.PURCHASES },
+      { key: 'PURCHASE_ITEMS', prop: 'purchaseItems', storeName: STORES.PURCHASE_ITEMS },
+      { key: 'CUSTOMERS', prop: 'customers', storeName: STORES.CUSTOMERS },
+      { key: 'SUPPLIERS', prop: 'suppliers', storeName: STORES.SUPPLIERS },
+      { key: 'PAYMENTS', prop: 'payments', storeName: STORES.PAYMENTS },
+      { key: 'STOCK_MOVEMENTS', prop: 'stockMovements', storeName: STORES.STOCK_MOVEMENTS },
+      { key: 'AUDIT_LOGS', prop: 'auditLogs', storeName: STORES.AUDIT_LOGS },
+      { key: 'SETTINGS', prop: 'settings', storeName: STORES.SETTINGS }
+    ];
+
+    const pendingMemoryUpdates = new Map();
+    const pendingDbWrites = {};
+
+    for (const mapping of storeMapping) {
+      const incomingList = sourceData[mapping.prop] || sourceData[mapping.prop.toLowerCase()] || sourceData[mapping.key];
+
+      if (Array.isArray(incomingList)) {
+        let finalItems;
+        if (options.merge) {
+          const existing = this.getCollection(mapping.key, []);
+          const existingMap = new Map(existing.map(item => [String(item.id || item.key), item]));
+          incomingList.forEach(item => {
+            const id = String(item.id || item.key);
+            existingMap.set(id, { ...existingMap.get(id), ...item });
+          });
+          finalItems = Array.from(existingMap.values());
+        } else {
+          finalItems = incomingList.map(item => {
+            if (item && item.id !== undefined && item.id !== null) {
+              return { ...item, id: String(item.id) };
+            }
+            return item;
+          });
+        }
+        pendingMemoryUpdates.set(mapping.key, finalItems);
+        pendingDbWrites[mapping.storeName] = finalItems;
+      }
+    }
+
+    try {
+      // 3. Atomically write to IndexedDB first
+      if (this.activeShopId && Object.keys(pendingDbWrites).length > 0) {
+        await atomicMultiStoreWrite(this.activeShopId, pendingDbWrites, { clearFirst: !options.merge });
+      }
+
+      // 4. Update memory cache only after DB write succeeds
+      pendingMemoryUpdates.forEach((val, key) => {
+        this.memoryCache.set(key, val);
+      });
+
+      return { success: true, count: Object.keys(pendingDbWrites).length };
+    } catch (err) {
+      // ROLLBACK: Revert memory cache to pre-restore snapshot
+      console.error('[StorageService] Import failed, rolling back to pre-restore state:', err);
+      this.rollbackToLastSnapshot();
+      throw err;
+    }
+  }
+
+  /**
+   * Reverts memory cache to the most recent pre-operation snapshot.
+   */
+  rollbackToLastSnapshot() {
+    if (this._lastBackupSnapshot) {
+      this.memoryCache = new Map(this._lastBackupSnapshot);
+      this._lastBackupSnapshot = null;
+      return true;
+    }
+    return false;
   }
 
   /**

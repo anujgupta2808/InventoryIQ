@@ -9,29 +9,41 @@ import { safeJsonParse } from '../utils/storageUtils.js';
 
 export class ImportService {
   validateFile(fileContent) {
+    // Raw JSON prototype pollution check
+    if (typeof fileContent === 'string' && /"(__proto__|constructor|prototype)"\s*:/.test(fileContent)) {
+      return { isValid: false, message: 'Malicious payload detected: forbidden prototype properties.' };
+    }
+
     let data = typeof fileContent === 'string' ? safeJsonParse(fileContent) : fileContent;
 
     if (!data || typeof data !== 'object') {
       return { isValid: false, message: 'File is not a valid JSON document.' };
     }
 
-    // Prototype pollution prevention (check own properties only)
+    // Prototype pollution prevention
     const hasOwn = Object.prototype.hasOwnProperty;
-    if (hasOwn.call(data, '__proto__') || hasOwn.call(data, 'constructor') || hasOwn.call(data, 'prototype')) {
+    if (
+      hasOwn.call(data, '__proto__') || 
+      hasOwn.call(data, 'constructor') || 
+      hasOwn.call(data, 'prototype') ||
+      (Object.getPrototypeOf(data) !== Object.prototype && Object.getPrototypeOf(data) !== null)
+    ) {
       return { isValid: false, message: 'Malicious payload detected: forbidden prototype properties.' };
     }
 
-    if (!data.products && !data.sales && !data.purchases) {
+    const payload = data.data || data.stores || data;
+
+    if (!payload.products && !payload.sales && !payload.purchases) {
       return {
         isValid: false,
         message: 'JSON structure does not match an InventoryIQ backup archive.'
       };
     }
 
-    const version = data._meta?.schemaVersion || 1;
+    const version = data.version || data._meta?.schemaVersion || payload._meta?.schemaVersion || 1;
 
     // Strict schema & integrity validation
-    const validationErrors = this.validateCollections(data);
+    const validationErrors = this.validateCollections(payload);
     if (validationErrors.length > 0) {
       return {
         isValid: false,
@@ -43,8 +55,9 @@ export class ImportService {
     return {
       isValid: true,
       data,
+      payload,
       schemaVersion: version,
-      isCompatible: version <= SCHEMA_VERSION
+      isCompatible: Number(String(version).split('.')[0]) <= SCHEMA_VERSION
     };
   }
 
@@ -126,26 +139,27 @@ export class ImportService {
   }
 
   generatePreview(data) {
+    const payload = data.data || data.stores || data;
     return {
-      productsCount: Array.isArray(data.products) ? data.products.length : 0,
-      categoriesCount: Array.isArray(data.categories) ? data.categories.length : 0,
-      salesCount: Array.isArray(data.sales) ? data.sales.length : 0,
-      purchasesCount: Array.isArray(data.purchases) ? data.purchases.length : 0,
-      customersCount: Array.isArray(data.customers) ? data.customers.length : 0,
-      suppliersCount: Array.isArray(data.suppliers) ? data.suppliers.length : 0,
-      paymentsCount: Array.isArray(data.payments) ? data.payments.length : 0,
-      exportedAt: data._meta?.exportedAt || 'Unknown'
+      productsCount: Array.isArray(payload.products) ? payload.products.length : 0,
+      categoriesCount: Array.isArray(payload.categories) ? payload.categories.length : 0,
+      salesCount: Array.isArray(payload.sales) ? payload.sales.length : 0,
+      purchasesCount: Array.isArray(payload.purchases) ? payload.purchases.length : 0,
+      customersCount: Array.isArray(payload.customers) ? payload.customers.length : 0,
+      suppliersCount: Array.isArray(payload.suppliers) ? payload.suppliers.length : 0,
+      paymentsCount: Array.isArray(payload.payments) ? payload.payments.length : 0,
+      exportedAt: data.exportedAt || data._meta?.exportedAt || payload._meta?.exportedAt || 'Unknown'
     };
   }
 
-  restoreBackup(data, options = { merge: false, backup: true }) {
+  async restoreBackup(data, options = { merge: false, backup: true }) {
     try {
       const validation = this.validateFile(data);
       if (!validation.isValid) {
-        return { success: false, message: validation.message };
+        return { success: false, message: validation.message, errors: validation.errors || [validation.message] };
       }
 
-      storageService.importAllData(data, options);
+      await storageService.importAllData(data, options);
       return {
         success: true,
         summary: this.generatePreview(data)

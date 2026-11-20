@@ -34,6 +34,10 @@ export async function computeSHA256(text) {
 }
 
 export class BackupService {
+  constructor() {
+    this.lastPreRestoreSnapshot = null;
+  }
+
   /**
    * Generates a verified JSON backup snapshot of all stores for the given shop.
    * NEVER deletes local data automatically.
@@ -66,12 +70,13 @@ export class BackupService {
       format: BACKUP_FORMAT,
       application: 'InventoryIQ',
       version: CURRENT_BACKUP_VERSION,
+      schemaVersion: 4,
       shopId,
       exportedAt: new Date().toISOString(),
       applicationVersion: APPLICATION_VERSION,
       checksum,
       recordCounts,
-      metadata: { recordCounts, exportedAt: new Date().toISOString() },
+      metadata: { recordCounts, schemaVersion: 4, exportedAt: new Date().toISOString() },
       stores: storesData,
       data: storesData
     };
@@ -135,6 +140,11 @@ export class BackupService {
    * Validates and verifies an uploaded backup document before preview or import
    */
   async validateBackupFile(fileContent, currentShopId) {
+    if (typeof fileContent === 'string' && /"(__proto__|constructor|prototype)"\s*:/.test(fileContent)) {
+      const msg = 'Security violation: malicious prototype properties detected in backup file.';
+      return { isValid: false, valid: false, errors: [msg], message: msg };
+    }
+
     let parsed;
     try {
       parsed = typeof fileContent === 'string' ? JSON.parse(fileContent) : fileContent;
@@ -150,7 +160,12 @@ export class BackupService {
 
     // Prototype pollution prevention
     const hasOwn = Object.prototype.hasOwnProperty;
-    if (hasOwn.call(parsed, '__proto__') || hasOwn.call(parsed, 'constructor') || hasOwn.call(parsed, 'prototype')) {
+    if (
+      hasOwn.call(parsed, '__proto__') || 
+      hasOwn.call(parsed, 'constructor') || 
+      hasOwn.call(parsed, 'prototype') ||
+      (Object.getPrototypeOf(parsed) !== Object.prototype && Object.getPrototypeOf(parsed) !== null)
+    ) {
       const msg = 'Security violation: malicious prototype properties detected in backup file.';
       return { isValid: false, valid: false, errors: [msg], message: msg };
     }
@@ -185,8 +200,8 @@ export class BackupService {
     }
 
     // Checksum verification (Section 69)
-    if (normalized.checksum && (normalized.data || normalized.stores)) {
-      const contentData = normalized.data || normalized.stores;
+    if (normalized.checksum && (normalized.stores || normalized.data)) {
+      const contentData = normalized.stores || normalized.data;
       const computedChecksum = await computeSHA256(JSON.stringify(contentData));
       if (computedChecksum !== normalized.checksum) {
         const msg = 'Checksum verification failed: Cryptographic checksum mismatch. The backup file appears to be corrupted or tampered with.';
@@ -227,10 +242,19 @@ export class BackupService {
 
   /**
    * Imports a verified backup into the shop's local IndexedDB
+   * Takes an automatic pre-restore safety snapshot before writing.
+   * All stores are updated inside ONE atomic transaction; if any store fails, all changes roll back.
    */
   async restoreBackup(shopId, backupPayload, options = { replace: true }) {
     if (!backupPayload || (!backupPayload.data && !backupPayload.stores)) {
       throw new Error('Invalid backup payload provided for restore.');
+    }
+
+    // 1. Automatic Pre-Restore Safety Snapshot
+    try {
+      this.lastPreRestoreSnapshot = await exportAllStoresData(shopId);
+    } catch (snapErr) {
+      console.warn('[BackupService] Notice during pre-restore snapshot generation:', snapErr);
     }
 
     const data = backupPayload.data || backupPayload.stores;
@@ -274,7 +298,7 @@ export class BackupService {
         // Write an audit log entry inside the restore transaction
         const auditStore = tx.objectStore(STORES.AUDIT_LOGS);
         auditStore.add({
-          id: crypto.randomUUID(),
+          id: (typeof crypto !== 'undefined' && crypto.randomUUID) ? crypto.randomUUID() : 'audit_' + Date.now(),
           userId: 'Admin',
           role: 'owner',
           action: 'BACKUP_IMPORTED',
@@ -287,6 +311,16 @@ export class BackupService {
         reject(err);
       }
     });
+  }
+
+  /**
+   * Reverts the database to the most recent pre-restore snapshot.
+   */
+  async rollbackToPreRestore(shopId) {
+    if (!this.lastPreRestoreSnapshot) {
+      throw new Error('No pre-restore snapshot available to rollback to.');
+    }
+    return this.restoreBackup(shopId, { data: this.lastPreRestoreSnapshot, exportedAt: 'pre_restore_recovery' }, { replace: true });
   }
 
   /**

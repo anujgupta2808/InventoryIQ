@@ -1,6 +1,6 @@
 /**
  * IndexedDB Core Abstraction Layer for InventoryIQ Local-First Architecture
- * Manages database lifecycle, store access, queries, and health diagnostics.
+ * Manages database lifecycle, store access, queries, transactions, and health diagnostics.
  */
 
 import { DB_NAME_PREFIX, CURRENT_DB_VERSION, setupDatabaseSchema, STORES, ALL_STORES } from './schema.js';
@@ -227,6 +227,113 @@ export async function clearStore(shopId, storeName) {
 }
 
 /**
+ * ATOMIC STORE REPLACEMENT (Prevents clear-and-repopulate race conditions)
+ * Clears and repopulates an object store inside a SINGLE atomic transaction.
+ * If any record insertion fails or an abort occurs, the clear operation is automatically rolled back!
+ */
+export async function replaceStoreData(shopId, storeName, records) {
+  const db = await openShopDatabase(shopId);
+  return new Promise((resolve, reject) => {
+    try {
+      const tx = db.transaction([storeName], 'readwrite');
+      const store = tx.objectStore(storeName);
+      store.clear();
+
+      if (Array.isArray(records)) {
+        for (const item of records) {
+          if (item && item.id !== undefined && item.id !== null) {
+            store.put({ ...item, id: String(item.id) });
+          } else if (item && item.key !== undefined) {
+            store.put(item);
+          }
+        }
+      }
+
+      tx.oncomplete = () => resolve(true);
+      tx.onerror = () => reject(tx.error || new Error(`Transaction failed while replacing ${storeName}`));
+      tx.onabort = () => reject(new Error(`Transaction aborted while replacing ${storeName}`));
+    } catch (err) {
+      reject(err);
+    }
+  });
+}
+
+/**
+ * ATOMIC MULTI-STORE TRANSACTION
+ * Executes an arbitrary callback with a multi-store transaction.
+ * Rolls back all touched stores if any operation fails or throws.
+ */
+export async function runTransaction(shopId, storeNames, mode = 'readwrite', operationFn) {
+  const db = await openShopDatabase(shopId);
+  return new Promise((resolve, reject) => {
+    try {
+      const tx = db.transaction(storeNames, mode);
+      let opResult;
+
+      tx.oncomplete = () => resolve(opResult);
+      tx.onerror = () => reject(tx.error || new Error('Transaction failed'));
+      tx.onabort = () => reject(new Error('Transaction was aborted'));
+
+      try {
+        opResult = operationFn(tx);
+        // If operationFn returned a promise that rejected, abort transaction
+        if (opResult && typeof opResult.then === 'function') {
+          opResult.catch(err => {
+            try { tx.abort(); } catch (_) {}
+            reject(err);
+          });
+        }
+      } catch (err) {
+        try { tx.abort(); } catch (_) {}
+        reject(err);
+      }
+    } catch (err) {
+      reject(err);
+    }
+  });
+}
+
+/**
+ * ATOMIC MULTI-STORE BATCH WRITE
+ * Writes or replaces records across multiple stores inside a SINGLE transaction.
+ * If any store or record fails, all modifications are rolled back.
+ */
+export async function atomicMultiStoreWrite(shopId, storeDataMap, options = { clearFirst: false }) {
+  const db = await openShopDatabase(shopId);
+  const storeNames = Object.keys(storeDataMap);
+  if (storeNames.length === 0) return true;
+
+  return new Promise((resolve, reject) => {
+    try {
+      const tx = db.transaction(storeNames, 'readwrite');
+
+      if (options.clearFirst) {
+        storeNames.forEach(name => tx.objectStore(name).clear());
+      }
+
+      for (const [storeName, records] of Object.entries(storeDataMap)) {
+        const store = tx.objectStore(storeName);
+        if (Array.isArray(records)) {
+          for (const item of records) {
+            if (item && item.id !== undefined && item.id !== null) {
+              store.put({ ...item, id: String(item.id) });
+            } else if (item && item.key !== undefined) {
+              store.put(item);
+            }
+          }
+        }
+      }
+
+      tx.oncomplete = () => resolve(true);
+      tx.onerror = () => reject(tx.error || new Error('Atomic multi-store write failed'));
+      tx.onabort = () => reject(new Error('Atomic multi-store write aborted'));
+    } catch (err) {
+      reject(err);
+    }
+  });
+}
+
+/**
  * Retrieves a complete multi-store snapshot for backup export or diagnostic analysis.
  */
 export async function exportAllStoresData(shopId) {
@@ -301,3 +408,4 @@ export async function checkDatabaseHealth(shopId) {
     };
   }
 }
+
