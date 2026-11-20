@@ -14,20 +14,34 @@ export class ProductService {
     this.collectionName = 'PRODUCTS';
   }
 
-  getAll() {
-    return storageService.getCollection(this.collectionName);
+  getAll(filters = {}) {
+    const products = storageService.getCollection(this.collectionName);
+    if (filters && filters.includeArchived) {
+      return products;
+    }
+    return products.filter(p => !p.isArchived && p.status !== 'Archived');
   }
 
   getById(id) {
-    return storageService.getItemById(this.collectionName, id);
+    const products = storageService.getCollection(this.collectionName);
+    return products.find(p => String(p.id) === String(id)) || null;
   }
 
   checkDuplicateSKU(sku, excludeId = null) {
     if (!sku) return false;
     const cleanSku = String(sku).trim().toLowerCase();
-    const products = this.getAll();
+    const products = storageService.getCollection(this.collectionName);
     return products.some(p => 
       p.sku && String(p.sku).trim().toLowerCase() === cleanSku && (excludeId === null || String(p.id) !== String(excludeId))
+    );
+  }
+
+  checkDuplicateBarcode(barcode, excludeId = null) {
+    if (!barcode) return false;
+    const cleanBarcode = String(barcode).trim().toLowerCase();
+    const products = storageService.getCollection(this.collectionName);
+    return products.some(p => 
+      p.barcode && String(p.barcode).trim().toLowerCase() === cleanBarcode && (excludeId === null || String(p.id) !== String(excludeId))
     );
   }
 
@@ -148,14 +162,89 @@ export class ProductService {
     return { success: true, product: updated };
   }
 
+  hasHistoricalTransactions(id) {
+    const idStr = String(id);
+    const sales = storageService.getCollection('SALES');
+    const hasSales = sales.some(s => (s.items || []).some(item => String(item.productId || item.id) === idStr));
+    if (hasSales) return true;
+
+    const purchases = storageService.getCollection('PURCHASES');
+    const hasPurchases = purchases.some(po => (po.items || []).some(item => String(item.productId || item.id) === idStr));
+    if (hasPurchases) return true;
+
+    const movements = storageService.getCollection('STOCK_MOVEMENTS');
+    const hasMovements = movements.some(m => String(m.productId) === idStr);
+    return hasMovements;
+  }
+
   deleteProduct(id, userRole = 'owner', shopId = null) {
     permissionService.assertPermission(userRole, 'inventory.delete', 'delete catalog products');
+
+    const existing = this.getById(id);
+    if (!existing) {
+      return { success: false, message: 'Product not found.' };
+    }
+
+    // Task 7: Do NOT allow deletion to destroy historical financial records.
+    // If the product has historical transactions, soft delete / archive it!
+    if (this.hasHistoricalTransactions(id)) {
+      const archived = storageService.updateItem(this.collectionName, id, {
+        isArchived: true,
+        status: 'Archived',
+        stock: 0,
+        archivedAt: new Date().toISOString()
+      });
+
+      if (shopId && archived) {
+        productRepository.save(shopId, archived).catch(err => console.warn('Async IndexedDB archive notice:', err));
+      }
+
+      return {
+        success: true,
+        softDeleted: true,
+        archived: true,
+        product: archived,
+        message: `Product "${existing.name}" has historical transactions and has been safely archived to preserve audit history.`
+      };
+    }
 
     const removed = storageService.removeItem(this.collectionName, id);
     if (shopId && removed) {
       productRepository.delete(shopId, id).catch(err => console.warn('Async IndexedDB delete notice:', err));
     }
-    return { success: removed };
+    return { success: removed, hardDeleted: true, archived: false, softDeleted: false };
+  }
+
+  archiveProduct(id, userRole = 'owner', shopId = null) {
+    permissionService.assertPermission(userRole, 'inventory.update', 'archive products');
+    const updated = storageService.updateItem(this.collectionName, id, {
+      isArchived: true,
+      status: 'Archived',
+      archivedAt: new Date().toISOString()
+    });
+    if (shopId && updated) {
+      productRepository.save(shopId, updated).catch(err => console.warn('Async IndexedDB archive notice:', err));
+    }
+    return { success: Boolean(updated), product: updated };
+  }
+
+  restoreProduct(id, userRole = 'owner', shopId = null) {
+    permissionService.assertPermission(userRole, 'inventory.update', 'restore products');
+    const existing = this.getById(id);
+    if (!existing) return { success: false, message: 'Product not found.' };
+    const stock = Number(existing.stock || 0);
+    const minStock = Number(existing.minStock || 0);
+    const status = this.calculateStatus(stock, minStock);
+
+    const updated = storageService.updateItem(this.collectionName, id, {
+      isArchived: false,
+      status,
+      restoredAt: new Date().toISOString()
+    });
+    if (shopId && updated) {
+      productRepository.save(shopId, updated).catch(err => console.warn('Async IndexedDB restore notice:', err));
+    }
+    return { success: Boolean(updated), product: updated };
   }
 
   getLowStockProducts() {

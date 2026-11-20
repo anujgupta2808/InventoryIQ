@@ -66,6 +66,17 @@ export const validateProduct = (product, existingProducts = []) => {
     }
   }
 
+  // Prevent duplicate barcode across distinct products
+  if (product.barcode && String(product.barcode).trim()) {
+    const cleanBarcode = String(product.barcode).trim().toLowerCase();
+    const duplicateBarcode = existingProducts.find(
+      p => p.barcode && String(p.barcode).trim().toLowerCase() === cleanBarcode && String(p.id) !== String(product.id)
+    );
+    if (duplicateBarcode) {
+      errors.push(`Barcode "${cleanBarcode}" is already assigned to "${duplicateBarcode.name}".`);
+    }
+  }
+
   if (!isNonNegativeNumber(product.stock)) {
     errors.push('Stock quantity must be a non-negative number.');
   }
@@ -179,17 +190,37 @@ export const validateSale = (sale, existingProducts = []) => {
 
 export const validatePurchase = (purchase) => {
   const errors = [];
+  if (!purchase || typeof purchase !== 'object') {
+    return { isValid: false, errors: ['Invalid purchase order record.'] };
+  }
+
   if (!purchase.supplierName && !purchase.supplierId) {
     errors.push('Supplier is required for purchase order.');
   }
 
   if (!purchase.items || !Array.isArray(purchase.items) || purchase.items.length === 0) {
     errors.push('Purchase order must contain at least one item.');
+    return { isValid: false, errors };
   }
 
-  const amount = Number(purchase.amount);
-  if (!isNonNegativeNumber(amount)) {
-    errors.push('Total purchase amount must be non-negative.');
+  purchase.items.forEach((item, index) => {
+    const itemLabel = item.name || `Item #${index + 1}`;
+    const qty = Number(item.qty);
+    if (!isPositiveNumber(qty) || !isFinite(qty)) {
+      errors.push(`Item #${index + 1} (${itemLabel}) quantity must be a positive number greater than zero.`);
+    }
+
+    const cost = Number(item.cost !== undefined ? item.cost : (item.costPrice !== undefined ? item.costPrice : item.price));
+    if (isNaN(cost) || !isFinite(cost) || cost < 0) {
+      errors.push(`Item #${index + 1} (${itemLabel}) unit cost cannot be negative and must be a valid number.`);
+    }
+  });
+
+  if (purchase.amount !== undefined && purchase.amount !== null) {
+    const amount = Number(purchase.amount);
+    if (!isNonNegativeNumber(amount)) {
+      errors.push('Total purchase amount must be non-negative.');
+    }
   }
 
   return {

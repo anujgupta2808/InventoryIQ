@@ -218,7 +218,7 @@ export async function executeSaleAtomic(shopId, saleData, user = { name: 'Admin'
       // Calculate invoice totals using single authoritative calculation engine
       const isInterState = Boolean(saleData.isInterState);
       const calculatedSaleTotals = calculateSaleTotals(
-        normalizedLines.map(line => ({
+        consolidatedLines.map(line => ({
           productId: line.productId || line.id,
           name: line.name,
           price: line.price,
@@ -502,6 +502,14 @@ export async function executePurchaseAtomic(shopId, purchaseData, user = { name:
     throw new Error('Purchase must contain at least one line item.');
   }
 
+  // Idempotency token to prevent double-submission / race conditions
+  const poId = purchaseData.id || `PO-${new Date().getFullYear()}-${Math.floor(100000 + Math.random() * 900000)}`;
+  const idempotencyKey = purchaseData.idempotencyKey || `PO_TX_${poId}`;
+  if (inFlightOperations.has(idempotencyKey)) {
+    throw new Error('This purchase transaction is currently processing. Please wait.');
+  }
+  inFlightOperations.add(idempotencyKey);
+
   const requiredStores = [
     STORES.PURCHASES,
     STORES.PURCHASE_ITEMS,
@@ -512,18 +520,34 @@ export async function executePurchaseAtomic(shopId, purchaseData, user = { name:
     STORES.AUDIT_LOGS
   ];
 
-  return runTransaction(shopId, requiredStores, 'readwrite', async (tx) => {
-    const purchaseStore = tx.objectStore(STORES.PURCHASES);
-    const purchaseItemStore = tx.objectStore(STORES.PURCHASE_ITEMS);
-    const productStore = tx.objectStore(STORES.PRODUCTS);
-    const supplierStore = tx.objectStore(STORES.SUPPLIERS);
-    const paymentStore = tx.objectStore(STORES.PAYMENTS);
-    const movementStore = tx.objectStore(STORES.STOCK_MOVEMENTS);
-    const auditStore = tx.objectStore(STORES.AUDIT_LOGS);
+  try {
+    return await runTransaction(shopId, requiredStores, 'readwrite', async (tx) => {
+      const purchaseStore = tx.objectStore(STORES.PURCHASES);
+      const purchaseItemStore = tx.objectStore(STORES.PURCHASE_ITEMS);
+      const productStore = tx.objectStore(STORES.PRODUCTS);
+      const supplierStore = tx.objectStore(STORES.SUPPLIERS);
+      const paymentStore = tx.objectStore(STORES.PAYMENTS);
+      const movementStore = tx.objectStore(STORES.STOCK_MOVEMENTS);
+      const auditStore = tx.objectStore(STORES.AUDIT_LOGS);
 
-    const now = new Date();
-    const dateStr = purchaseData.date || now.toISOString().split('T')[0];
-    const poId = purchaseData.id || `PO-${now.getFullYear()}-${Math.floor(100000 + Math.random() * 900000)}`;
+      const now = new Date();
+      const dateStr = purchaseData.date || now.toISOString().split('T')[0];
+
+      // Check if PO already exists and was received
+      const existingPo = await new Promise((res, rej) => {
+        const req = purchaseStore.get(poId);
+        req.onsuccess = () => res(req.result || null);
+        req.onerror = () => rej(req.error);
+      });
+
+      if (existingPo && (existingPo.status === 'Completed' || existingPo.status === 'Received')) {
+        return {
+          success: true,
+          purchase: existingPo,
+          duplicate: true,
+          alreadyReceived: true
+        };
+      }
 
     let totalSubtotalPaise = 0;
     let totalTaxPaise = 0;
@@ -690,8 +714,11 @@ export async function executePurchaseAtomic(shopId, purchaseData, user = { name:
 
     // Record payment if paid
     if (paidAmount > 0) {
+      const paymentId = (typeof crypto !== 'undefined' && crypto.randomUUID)
+        ? `PAY-SUP-${crypto.randomUUID()}`
+        : `PAY-SUP-${Date.now()}-${Math.floor(1000 + Math.random() * 9000)}`;
       paymentStore.add({
-        id: `PAY-SUP-${Date.now().toString().slice(-6)}`,
+        id: paymentId,
         partyId: purchaseData.supplierId || null,
         partyType: 'SUPPLIER',
         partyName: purchaseRecord.supplierName,
@@ -749,5 +776,503 @@ export async function executePurchaseAtomic(shopId, purchaseData, user = { name:
       purchase: purchaseRecord,
       updatedProducts
     };
+  });
+  } finally {
+    inFlightOperations.delete(idempotencyKey);
+  }
+}
+
+/**
+ * ATOMIC PURCHASE CANCELLATION TRANSACTION
+ * 1. Checks purchase status
+ * 2. Reverses inventory stock for all received items
+ * 3. Records reversal stock movements (PURCHASE_CANCEL)
+ * 4. Reverses supplier balance (totalPurchased, totalPaid, currentDue)
+ * 5. Marks PO status as 'Cancelled'
+ * 6. Records audit log
+ */
+export async function executePurchaseCancellationAtomic(shopId, purchaseId, reason = 'PO Cancelled', user = { name: 'Admin', role: 'owner' }) {
+  const requiredStores = [
+    STORES.PURCHASES,
+    STORES.PRODUCTS,
+    STORES.SUPPLIERS,
+    STORES.STOCK_MOVEMENTS,
+    STORES.AUDIT_LOGS
+  ];
+
+  return runTransaction(shopId, requiredStores, 'readwrite', async (tx) => {
+    const purchaseStore = tx.objectStore(STORES.PURCHASES);
+    const productStore = tx.objectStore(STORES.PRODUCTS);
+    const supplierStore = tx.objectStore(STORES.SUPPLIERS);
+    const movementStore = tx.objectStore(STORES.STOCK_MOVEMENTS);
+    const auditStore = tx.objectStore(STORES.AUDIT_LOGS);
+
+    const now = new Date();
+
+    const purchase = await new Promise((res, rej) => {
+      const req = purchaseStore.get(purchaseId);
+      req.onsuccess = () => res(req.result || null);
+      req.onerror = () => rej(req.error);
+    });
+
+    if (!purchase) {
+      throw new Error(`Purchase order #${purchaseId} not found.`);
+    }
+
+    if (purchase.status === 'Cancelled') {
+      throw new Error(`Purchase order #${purchaseId} is already cancelled.`);
+    }
+
+    // Deduct stock previously added by this PO
+    const updatedProducts = [];
+    if (Array.isArray(purchase.items)) {
+      for (const item of purchase.items) {
+        const prodId = String(item.productId || item.id);
+        const qtyToDeduct = Number(item.qty || 0);
+
+        if (qtyToDeduct > 0) {
+          const product = await new Promise((res, rej) => {
+            const req = productStore.get(prodId);
+            req.onsuccess = () => res(req.result || null);
+            req.onerror = () => rej(req.error);
+          });
+
+          if (product) {
+            const currentStock = Number(product.stock || 0);
+            const newStock = Math.max(0, roundTo(currentStock - qtyToDeduct, 3));
+            const minStock = Number(product.minStock || 0);
+            const newStatus = newStock <= 0 ? 'Out of Stock' : (newStock <= minStock ? 'Low Stock' : 'In Stock');
+
+            const updatedProd = {
+              ...product,
+              stock: newStock,
+              status: newStatus,
+              updatedAt: now.toISOString()
+            };
+            productStore.put(updatedProd);
+            updatedProducts.push(updatedProd);
+
+            movementStore.add({
+              id: crypto.randomUUID(),
+              productId: prodId,
+              productName: product.name,
+              type: 'PURCHASE_CANCEL',
+              quantity: -qtyToDeduct,
+              previousStock: currentStock,
+              newStock,
+              referenceType: 'PURCHASE_CANCEL',
+              referenceId: purchaseId,
+              reason: `PO Cancellation: ${reason}`,
+              userId: user.id || user.name || 'Admin',
+              createdAt: now.toISOString()
+            });
+          }
+        }
+      }
+    }
+
+    // Reconcile supplier balance if linked
+    if (purchase.supplierId) {
+      const supplier = await new Promise((res, rej) => {
+        const req = supplierStore.get(String(purchase.supplierId));
+        req.onsuccess = () => res(req.result || null);
+        req.onerror = () => rej(req.error);
+      });
+
+      if (supplier) {
+        const billed = roundTo((Number(supplier.totalPurchased) || 0) - (Number(purchase.amount) || 0), 2);
+        const paid = roundTo((Number(supplier.totalPaid) || 0) - (Number(purchase.paidAmount) || 0), 2);
+        supplierStore.put({
+          ...supplier,
+          totalPurchased: Math.max(0, billed),
+          totalPaid: Math.max(0, paid),
+          currentDue: Math.max(0, roundTo(billed - paid, 2)),
+          updatedAt: now.toISOString()
+        });
+      }
+    }
+
+    const cancelledPurchase = {
+      ...purchase,
+      status: 'Cancelled',
+      cancellationReason: reason,
+      cancelledAt: now.toISOString(),
+      cancelledBy: user.name || 'Admin'
+    };
+    purchaseStore.put(cancelledPurchase);
+
+    auditStore.add({
+      id: crypto.randomUUID(),
+      userId: user.id || user.name || 'Admin',
+      role: user.role || 'owner',
+      action: 'PURCHASE_CANCELLED',
+      entityType: 'PURCHASE',
+      entityId: purchaseId,
+      details: `Cancelled PO #${purchaseId} (Reason: ${reason})`,
+      timestamp: now.toISOString()
+    });
+
+    return { success: true, purchase: cancelledPurchase, updatedProducts };
+  });
+}
+
+/**
+ * ATOMIC SUPPLIER RETURN TRANSACTION
+ * 1. Validates available product stock (stock must never become negative)
+ * 2. Deducts stock & updates product status
+ * 3. Records immutable SUPPLIER_RETURN movement
+ * 4. Adjusts supplier ledger (totalPurchased, currentDue)
+ * 5. Records audit log
+ */
+export async function executeSupplierReturnAtomic(shopId, returnData, user = { name: 'Admin', role: 'owner' }) {
+  const { purchaseId, productId, quantity, reason } = returnData;
+  const qty = Number(quantity);
+
+  if (!productId) throw new Error('Product ID is required for supplier return.');
+  if (isNaN(qty) || qty <= 0) throw new Error(`Invalid return quantity: ${quantity}`);
+
+  const requiredStores = [
+    STORES.PURCHASES,
+    STORES.PRODUCTS,
+    STORES.SUPPLIERS,
+    STORES.STOCK_MOVEMENTS,
+    STORES.AUDIT_LOGS
+  ];
+
+  return runTransaction(shopId, requiredStores, 'readwrite', async (tx) => {
+    const purchaseStore = tx.objectStore(STORES.PURCHASES);
+    const productStore = tx.objectStore(STORES.PRODUCTS);
+    const supplierStore = tx.objectStore(STORES.SUPPLIERS);
+    const movementStore = tx.objectStore(STORES.STOCK_MOVEMENTS);
+    const auditStore = tx.objectStore(STORES.AUDIT_LOGS);
+
+    const now = new Date();
+
+    const product = await new Promise((res, rej) => {
+      const req = productStore.get(String(productId));
+      req.onsuccess = () => res(req.result || null);
+      req.onerror = () => rej(req.error);
+    });
+
+    if (!product) throw new Error(`Product #${productId} not found.`);
+
+    const currentStock = Number(product.stock || 0);
+    if (currentStock < qty) {
+      throw new Error(`Insufficient stock to return. Current stock: ${currentStock}, Requested return: ${qty}.`);
+    }
+
+    const newStock = roundTo(currentStock - qty, 3);
+    const minStock = Number(product.minStock || 0);
+    const newStatus = newStock <= 0 ? 'Out of Stock' : (newStock <= minStock ? 'Low Stock' : 'In Stock');
+
+    const updatedProd = {
+      ...product,
+      stock: newStock,
+      status: newStatus,
+      updatedAt: now.toISOString()
+    };
+    productStore.put(updatedProd);
+
+    // Record movement
+    movementStore.add({
+      id: crypto.randomUUID(),
+      productId: String(productId),
+      productName: product.name,
+      type: 'SUPPLIER_RETURN',
+      quantity: -qty,
+      previousStock: currentStock,
+      newStock,
+      referenceType: 'SUPPLIER_RETURN',
+      referenceId: purchaseId || 'DIRECT_RETURN',
+      reason: reason || 'Returned to supplier',
+      userId: user.id || user.name || 'Admin',
+      createdAt: now.toISOString()
+    });
+
+    // Update supplier ledger if supplier linked
+    let supplierId = product.supplierId;
+    if (purchaseId) {
+      const purchase = await new Promise((res, rej) => {
+        const req = purchaseStore.get(purchaseId);
+        req.onsuccess = () => res(req.result || null);
+        req.onerror = () => rej(req.error);
+      });
+      if (purchase?.supplierId) supplierId = purchase.supplierId;
+    }
+
+    if (supplierId) {
+      const supplier = await new Promise((res, rej) => {
+        const req = supplierStore.get(String(supplierId));
+        req.onsuccess = () => res(req.result || null);
+        req.onerror = () => rej(req.error);
+      });
+
+      if (supplier) {
+        const returnAmount = roundTo(qty * (Number(product.costPrice) || 0), 2);
+        const newPurchased = Math.max(0, roundTo((Number(supplier.totalPurchased) || 0) - returnAmount, 2));
+        const newDue = Math.max(0, roundTo(newPurchased - (Number(supplier.totalPaid) || 0), 2));
+        supplierStore.put({
+          ...supplier,
+          totalPurchased: newPurchased,
+          currentDue: newDue,
+          updatedAt: now.toISOString()
+        });
+      }
+    }
+
+    auditStore.add({
+      id: crypto.randomUUID(),
+      userId: user.id || user.name || 'Admin',
+      role: user.role || 'owner',
+      action: 'SUPPLIER_RETURN',
+      entityType: 'INVENTORY',
+      entityId: String(productId),
+      details: `Returned ${qty} units of "${product.name}" to supplier. Reason: ${reason || 'N/A'}`,
+      timestamp: now.toISOString()
+    });
+
+    return { success: true, product: updatedProd, returnedQty: qty };
+  });
+}
+
+/**
+ * ATOMIC CUSTOMER RETURN TRANSACTION
+ * 1. Validates return quantity against original sale item
+ * 2. Restores inventory stock
+ * 3. Records immutable RETURN movement
+ * 4. Adjusts customer ledger if linked
+ * 5. Updates sale item returnedQty and sale status
+ * 6. Records audit log
+ */
+export async function executeCustomerReturnAtomic(shopId, returnData, user = { name: 'Admin', role: 'owner' }) {
+  const { saleId, items, reason } = returnData;
+  if (!saleId) throw new Error('Sale ID is required for customer return.');
+  if (!Array.isArray(items) || items.length === 0) throw new Error('At least one item required for return.');
+
+  const requiredStores = [
+    STORES.SALES,
+    STORES.PRODUCTS,
+    STORES.CUSTOMERS,
+    STORES.STOCK_MOVEMENTS,
+    STORES.AUDIT_LOGS
+  ];
+
+  return runTransaction(shopId, requiredStores, 'readwrite', async (tx) => {
+    const saleStore = tx.objectStore(STORES.SALES);
+    const productStore = tx.objectStore(STORES.PRODUCTS);
+    const customerStore = tx.objectStore(STORES.CUSTOMERS);
+    const movementStore = tx.objectStore(STORES.STOCK_MOVEMENTS);
+    const auditStore = tx.objectStore(STORES.AUDIT_LOGS);
+
+    const now = new Date();
+
+    const sale = await new Promise((res, rej) => {
+      const req = saleStore.get(saleId);
+      req.onsuccess = () => res(req.result || null);
+      req.onerror = () => rej(req.error);
+    });
+
+    if (!sale) throw new Error(`Sale #${saleId} not found.`);
+
+    let totalRefundPaise = 0;
+    const updatedProducts = [];
+
+    const updatedItems = (sale.items || []).map((saleItem) => {
+      const match = items.find((ret) => String(ret.productId) === String(saleItem.productId || saleItem.id));
+      if (!match) return saleItem;
+
+      const retQty = Number(match.quantity);
+      if (isNaN(retQty) || retQty <= 0) {
+        throw new Error(`Invalid return quantity (${match.quantity}) for product "${saleItem.name}".`);
+      }
+
+      const previouslyReturned = Number(saleItem.returnedQty || 0);
+      const originalQty = Number(saleItem.qty || 0);
+      if (previouslyReturned + retQty > originalQty) {
+        throw new Error(
+          `Cannot return ${retQty} units of "${saleItem.name}". Purchased: ${originalQty}, Already returned: ${previouslyReturned}.`
+        );
+      }
+
+      const unitPricePaise = toPaise(saleItem.price || 0);
+      totalRefundPaise += Math.round(unitPricePaise * retQty);
+
+      return {
+        ...saleItem,
+        returnedQty: roundTo(previouslyReturned + retQty, 3)
+      };
+    });
+
+    // Restore stock and record movement for each returned item
+    for (const ret of items) {
+      const pId = String(ret.productId);
+      const retQty = Number(ret.quantity);
+
+      const product = await new Promise((res, rej) => {
+        const req = productStore.get(pId);
+        req.onsuccess = () => res(req.result || null);
+        req.onerror = () => rej(req.error);
+      });
+
+      if (product) {
+        const currentStock = Number(product.stock || 0);
+        const restoredStock = roundTo(currentStock + retQty, 3);
+        const minStock = Number(product.minStock || 0);
+        const newStatus = restoredStock <= 0 ? 'Out of Stock' : (restoredStock <= minStock ? 'Low Stock' : 'In Stock');
+
+        const updatedProd = {
+          ...product,
+          stock: restoredStock,
+          status: newStatus,
+          updatedAt: now.toISOString()
+        };
+        productStore.put(updatedProd);
+        updatedProducts.push(updatedProd);
+
+        movementStore.add({
+          id: crypto.randomUUID(),
+          productId: pId,
+          productName: product.name,
+          type: 'RETURN',
+          quantity: retQty,
+          previousStock: currentStock,
+          newStock: restoredStock,
+          referenceType: 'RETURN',
+          referenceId: saleId,
+          reason: reason || `Customer return from invoice #${saleId}`,
+          userId: user.id || user.name || 'Admin',
+          createdAt: now.toISOString()
+        });
+      }
+    }
+
+    // Reconcile customer ledger if linked
+    if (sale.customerId && totalRefundPaise > 0) {
+      const customer = await new Promise((res, rej) => {
+        const req = customerStore.get(String(sale.customerId));
+        req.onsuccess = () => res(req.result || null);
+        req.onerror = () => rej(req.error);
+      });
+
+      if (customer) {
+        const refundAmount = fromPaise(totalRefundPaise);
+        const newBilled = Math.max(0, roundTo((Number(customer.totalBilled) || 0) - refundAmount, 2));
+        const newDue = Math.max(0, roundTo(newBilled - (Number(customer.totalReceived) || 0), 2));
+        customerStore.put({
+          ...customer,
+          totalBilled: newBilled,
+          currentDue: newDue,
+          updatedAt: now.toISOString()
+        });
+      }
+    }
+
+    const allReturned = updatedItems.every(item => Number(item.returnedQty || 0) >= Number(item.qty || 0));
+    const updatedSale = {
+      ...sale,
+      items: updatedItems,
+      status: allReturned ? 'Returned' : 'Partial Return',
+      updatedAt: now.toISOString()
+    };
+    saleStore.put(updatedSale);
+
+    auditStore.add({
+      id: crypto.randomUUID(),
+      userId: user.id || user.name || 'Admin',
+      role: user.role || 'owner',
+      action: 'CUSTOMER_RETURN',
+      entityType: 'SALE',
+      entityId: saleId,
+      details: `Processed return on sale #${saleId} (Items: ${items.length}). Reason: ${reason || 'N/A'}`,
+      timestamp: now.toISOString()
+    });
+
+    return { success: true, sale: updatedSale, updatedProducts };
+  });
+}
+
+/**
+ * ATOMIC STOCK ADJUSTMENT TRANSACTION
+ * 1. Checks that stock will never become negative (invariant check)
+ * 2. Updates product stock and status
+ * 3. Records immutable stock movement (ADJUSTMENT, DAMAGE, CORRECTION, TRANSFER, OPENING)
+ * 4. Records audit log
+ */
+export async function executeStockAdjustmentAtomic(shopId, adjustmentData, user = { name: 'Admin', role: 'owner' }) {
+  const { productId, delta, type = 'ADJUSTMENT', reason = '' } = adjustmentData;
+  const numDelta = Number(delta);
+
+  if (!productId) throw new Error('Product ID is required for stock adjustment.');
+  if (isNaN(numDelta) || numDelta === 0) throw new Error(`Invalid stock adjustment delta: ${delta}`);
+
+  const requiredStores = [
+    STORES.PRODUCTS,
+    STORES.STOCK_MOVEMENTS,
+    STORES.AUDIT_LOGS
+  ];
+
+  return runTransaction(shopId, requiredStores, 'readwrite', async (tx) => {
+    const productStore = tx.objectStore(STORES.PRODUCTS);
+    const movementStore = tx.objectStore(STORES.STOCK_MOVEMENTS);
+    const auditStore = tx.objectStore(STORES.AUDIT_LOGS);
+
+    const now = new Date();
+
+    const product = await new Promise((res, rej) => {
+      const req = productStore.get(String(productId));
+      req.onsuccess = () => res(req.result || null);
+      req.onerror = () => rej(req.error);
+    });
+
+    if (!product) throw new Error(`Product #${productId} not found.`);
+
+    const currentStock = Number(product.stock || 0);
+    const newStock = roundTo(currentStock + numDelta, 3);
+
+    if (newStock < 0) {
+      throw new Error(
+        `Stock adjustment would result in negative stock. Current: ${currentStock}, Adjustment: ${numDelta}, Result: ${newStock}.`
+      );
+    }
+
+    const minStock = Number(product.minStock || 0);
+    const newStatus = newStock <= 0 ? 'Out of Stock' : (newStock <= minStock ? 'Low Stock' : 'In Stock');
+
+    const updatedProd = {
+      ...product,
+      stock: newStock,
+      status: newStatus,
+      updatedAt: now.toISOString()
+    };
+    productStore.put(updatedProd);
+
+    const movement = {
+      id: crypto.randomUUID(),
+      productId: String(productId),
+      productName: product.name,
+      type,
+      quantity: numDelta,
+      previousStock: currentStock,
+      newStock,
+      referenceType: 'MANUAL_ADJUSTMENT',
+      referenceId: `ADJ-${Date.now()}`,
+      reason: reason || `${type} adjustment`,
+      userId: user.id || user.name || 'Admin',
+      createdAt: now.toISOString()
+    };
+    movementStore.add(movement);
+
+    auditStore.add({
+      id: crypto.randomUUID(),
+      userId: user.id || user.name || 'Admin',
+      role: user.role || 'owner',
+      action: 'STOCK_ADJUSTED',
+      entityType: 'INVENTORY',
+      entityId: String(productId),
+      details: `Adjusted stock for "${product.name}" by ${numDelta > 0 ? '+' : ''}${numDelta} (${currentStock} → ${newStock}). Type: ${type}, Reason: ${reason || 'N/A'}`,
+      timestamp: now.toISOString()
+    });
+
+    return { success: true, product: updatedProd, movement };
   });
 }

@@ -5,7 +5,7 @@
  */
 
 import { storageService } from './storageService.js';
-import { calculateStockValuation } from '../utils/calculations.js';
+import { calculateStockValuation, roundTo } from '../utils/calculations.js';
 
 export class InventoryService {
   constructor() {
@@ -24,6 +24,10 @@ export class InventoryService {
     }
 
     return movements;
+  }
+
+  getMovements(productId) {
+    return this.getStockMovements({ productId });
   }
 
   recordMovement({
@@ -59,17 +63,44 @@ export class InventoryService {
     return movement;
   }
 
-  adjustStock({ productId, adjustmentQty, reason = 'Manual Adjustment', user = 'Admin' }) {
+  adjustStock(arg1, arg2, arg3, arg4) {
+    let productId, adjustmentQty, type, reason, user;
+    if (typeof arg1 === 'object' && arg1 !== null) {
+      ({ productId, adjustmentQty, type = 'ADJUSTMENT', reason = 'Manual Adjustment', user = 'Admin' } = arg1);
+    } else {
+      productId = arg1;
+      adjustmentQty = arg2;
+      reason = arg3 || 'Manual Adjustment';
+      user = arg4 || 'Admin';
+      type = 'ADJUSTMENT';
+    }
+
     const product = storageService.getItemById(this.productsCollection, productId);
     if (!product) {
-      return { success: false, message: 'Product not found.' };
+      const msg = 'Product not found.';
+      return { success: false, message: msg, errors: [msg] };
     }
 
     const currentStock = Number(product.stock) || 0;
-    const delta = Number(adjustmentQty) || 0;
-    const newStock = Math.max(0, currentStock + delta);
-    const minStock = Number(product.minStock) || 0;
+    const delta = Number(adjustmentQty);
 
+    if (isNaN(delta) || !isFinite(delta) || delta === 0) {
+      const msg = 'Adjustment quantity must be a non-zero valid number.';
+      return { success: false, message: msg, errors: [msg] };
+    }
+
+    // Business Rule Invariant: Stock must never become negative
+    if (currentStock + delta < 0) {
+      const msg = `Adjustment rejected: negative stock prohibited. Available: ${currentStock}, Requested change: ${delta}.`;
+      return {
+        success: false,
+        message: msg,
+        errors: [msg]
+      };
+    }
+
+    const newStock = roundTo(currentStock + delta, 3);
+    const minStock = Number(product.minStock) || 0;
     const newStatus = newStock <= 0 ? 'Out of Stock' : (newStock <= minStock ? 'Low Stock' : 'In Stock');
 
     const updatedProduct = storageService.updateItem(this.productsCollection, productId, {
@@ -78,10 +109,11 @@ export class InventoryService {
       updatedAt: new Date().toISOString()
     });
 
+    const normalizedType = String(type || 'ADJUSTMENT').toUpperCase();
     const movement = this.recordMovement({
       productId,
       productName: product.name,
-      type: 'ADJUSTMENT',
+      type: normalizedType,
       quantity: delta,
       previousStock: currentStock,
       newStock,

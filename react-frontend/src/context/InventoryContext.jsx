@@ -471,12 +471,57 @@ export const InventoryProvider = ({ children }) => {
 
   const deleteProduct = (id) => {
     const p = products.find(item => String(item.id) === String(id));
-    const res = productService.deleteProduct(id);
+    const res = productService.deleteProduct(id, user?.role || 'owner', currentShopId);
     if (res.success) {
       setProducts(productService.getAll());
-      addAuditLog('Product Deleted', `Removed ${p?.name || 'Product'} (${p?.sku || id})`);
-      showToast('Product Deleted', 'The product has been removed from catalog.', 'warning');
+      if (res.softDeleted) {
+        addAuditLog('Product Archived', `Archived ${p?.name || 'Product'} (${p?.sku || id}) due to existing transaction history`);
+        showToast('Product Archived', `"${p?.name || 'Product'}" has transaction history and was safely archived to preserve financial audit trails.`, 'info');
+      } else {
+        addAuditLog('Product Deleted', `Removed ${p?.name || 'Product'} (${p?.sku || id})`);
+        showToast('Product Deleted', 'The product has been removed from catalog.', 'warning');
+      }
+    } else {
+      showToast('Delete Error', res.message || 'Unable to delete product.', 'danger');
     }
+  };
+
+  const archiveProduct = (id) => {
+    const res = productService.archiveProduct(id, user?.role || 'owner', currentShopId);
+    if (res.success) {
+      setProducts(productService.getAll());
+      addAuditLog('Product Archived', `Archived product #${id}`);
+      showToast('Product Archived', 'Product archived from active catalog.', 'info');
+    }
+    return res;
+  };
+
+  const restoreProduct = (id) => {
+    const res = productService.restoreProduct(id, user?.role || 'owner', currentShopId);
+    if (res.success) {
+      setProducts(productService.getAll());
+      addAuditLog('Product Restored', `Restored product #${id}`);
+      showToast('Product Restored', 'Product restored to active catalog.', 'success');
+    }
+    return res;
+  };
+
+  const adjustStock = ({ productId, adjustmentQty, type = 'ADJUSTMENT', reason = 'Manual Adjustment' }) => {
+    const res = inventoryService.adjustStock({
+      productId,
+      adjustmentQty,
+      type,
+      reason,
+      user: user?.name || 'Admin'
+    });
+    if (!res.success) {
+      showToast('Stock Adjustment Error', res.message, 'danger');
+      return res;
+    }
+    setProducts(productService.getAll());
+    addAuditLog('Stock Adjusted', `Adjusted product #${productId} by ${adjustmentQty} (${type})`);
+    showToast('Stock Adjusted', `Inventory stock quantity updated.`);
+    return res;
   };
 
   // --------------------------------------------------------------------------
@@ -621,6 +666,57 @@ export const InventoryProvider = ({ children }) => {
     showToast('PO Received', `Order #${purchaseId} marked as Received. Stock added to catalog.`, 'success');
 
     syncChannel.broadcast('PURCHASE_RECEIVED', { poId: purchaseId });
+    return res;
+  };
+
+  const cancelPurchase = (purchaseId, reason = 'Purchase Cancelled') => {
+    const res = purchaseService.cancelPurchase(purchaseId, reason, user?.name || 'Admin');
+    if (!res.success) {
+      showToast('PO Cancellation Error', res.message, 'danger');
+      return res;
+    }
+    setPurchases(purchaseService.getAll());
+    setProducts(productService.getAll());
+    addAuditLog('Purchase Cancelled', `Cancelled PO #${purchaseId}`);
+    showToast('PO Cancelled', `Purchase Order #${purchaseId} cancelled and stock updated.`);
+    syncChannel.broadcast('PURCHASE_CANCELLED', { poId: purchaseId });
+    return res;
+  };
+
+  const returnToSupplier = ({ purchaseId, productId, quantity, reason = 'Supplier Return' }) => {
+    const res = purchaseService.returnToSupplier({
+      purchaseId,
+      productId,
+      quantity,
+      reason,
+      user: user?.name || 'Admin'
+    });
+    if (!res.success) {
+      showToast('Supplier Return Error', res.message, 'danger');
+      return res;
+    }
+    setProducts(productService.getAll());
+    addAuditLog('Supplier Return', `Returned ${quantity} units to vendor for product #${productId}`);
+    showToast('Supplier Return Logged', `Returned ${quantity} units to supplier.`);
+    return res;
+  };
+
+  const returnSaleItem = ({ saleId, productId, quantity, reason = 'Customer Return' }) => {
+    const res = salesService.returnSaleItem({
+      saleId,
+      productId,
+      quantity,
+      reason,
+      user: user?.name || 'Admin'
+    });
+    if (!res.success) {
+      showToast('Return Error', res.message, 'danger');
+      return res;
+    }
+    setSales(salesService.getAll());
+    setProducts(productService.getAll());
+    addAuditLog('Customer Return', `Returned ${quantity} units of product #${productId} from invoice #${saleId}`);
+    showToast('Customer Return Processed', `Restored ${quantity} units to inventory.`);
     return res;
   };
 
@@ -779,6 +875,9 @@ export const InventoryProvider = ({ children }) => {
     addProduct,
     updateProduct,
     deleteProduct,
+    archiveProduct,
+    restoreProduct,
+    adjustStock,
     lowStockItems,
 
     // Sales & Payments
@@ -786,6 +885,7 @@ export const InventoryProvider = ({ children }) => {
     setSales,
     createSale,
     cancelSale,
+    returnSaleItem,
     recordPayment,
     refundPayment,
     isProcessingSale,
@@ -795,6 +895,8 @@ export const InventoryProvider = ({ children }) => {
     setPurchases,
     createPurchase,
     receivePurchase,
+    cancelPurchase,
+    returnToSupplier,
     suppliers,
     setSuppliers,
     addSupplier,

@@ -6,7 +6,7 @@
 
 import { storageService } from './storageService.js';
 import { generateInvoiceNumber } from '../utils/invoiceGenerator.js';
-import { validateSale } from '../utils/validators.js';
+import { validateSale, isPositiveNumber } from '../utils/validators.js';
 import { calculateSaleTotals, aggregateSaleItems, roundTo } from '../utils/calculations.js';
 import { inventoryService } from './inventoryService.js';
 import { customerService } from './customerService.js';
@@ -24,6 +24,10 @@ export class SalesService {
 
   getById(id) {
     return storageService.getItemById(this.collectionName, id);
+  }
+
+  recordSale(saleData, user = 'Admin', organizationId = null) {
+    return this.createSale(saleData, user, organizationId);
   }
 
   createSale(saleData, user = 'Admin', organizationId = null) {
@@ -82,7 +86,7 @@ export class SalesService {
     const dueAmount = roundTo(Math.max(0, saleAmount - paidAmount));
     const paymentStatus = dueAmount <= 0 ? 'Paid' : (paidAmount > 0 ? 'Partial' : 'Unpaid');
 
-    const newSaleId = generateInvoiceNumber('S', existingSales);
+    const newSaleId = saleData.id || generateInvoiceNumber('S', existingSales);
     const now = new Date();
     const dateStr = now.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
 
@@ -246,7 +250,7 @@ export class SalesService {
         inventoryService.recordMovement({
           productId: p.id,
           productName: p.name,
-          type: 'RETURN',
+          type: 'SALE_CANCEL',
           quantity: qtyToRestore,
           previousStock: p.stock,
           newStock,
@@ -289,6 +293,100 @@ export class SalesService {
       success: true,
       sale: updatedSale,
       products: updatedProducts
+    };
+  }
+
+  returnSaleItem({ saleId, productId, quantity, reason = 'Customer Return', user = 'Admin' }) {
+    const sale = this.getById(saleId);
+    if (!sale) {
+      const msg = 'Sale invoice not found.';
+      return { success: false, message: msg, errors: [msg] };
+    }
+    if (sale.status === 'Cancelled') {
+      const msg = 'Cannot return items from a cancelled sale.';
+      return { success: false, message: msg, errors: [msg] };
+    }
+
+    const qtyToReturn = Number(quantity);
+    if (!isPositiveNumber(qtyToReturn) || !isFinite(qtyToReturn)) {
+      const msg = 'Return quantity must be a positive number.';
+      return { success: false, message: msg, errors: [msg] };
+    }
+
+    const prodIdStr = String(productId);
+    const itemIndex = (sale.items || []).findIndex(i => String(i.productId || i.id) === prodIdStr);
+    if (itemIndex < 0) {
+      const msg = 'Product not found in this sale invoice.';
+      return { success: false, message: msg, errors: [msg] };
+    }
+
+    const item = sale.items[itemIndex];
+    const alreadyReturned = Number(item.returnedQty || 0);
+    const maxReturnable = roundTo(Number(item.qty || 0) - alreadyReturned, 3);
+
+    if (qtyToReturn > maxReturnable) {
+      const msg = `Cannot return ${qtyToReturn} units. Maximum returnable quantity for this item is ${maxReturnable}.`;
+      return {
+        success: false,
+        message: msg,
+        errors: [msg]
+      };
+    }
+
+    // 1. Restore product stock
+    const products = storageService.getCollection('PRODUCTS');
+    const pIdx = products.findIndex(p => String(p.id) === prodIdStr);
+    let updatedProduct = null;
+
+    if (pIdx >= 0) {
+      const prod = products[pIdx];
+      const newStock = roundTo(prod.stock + qtyToReturn, 3);
+      const minStock = Number(prod.minStock) || 0;
+      const status = newStock <= 0 ? 'Out of Stock' : (newStock <= minStock ? 'Low Stock' : 'In Stock');
+
+      updatedProduct = {
+        ...prod,
+        stock: newStock,
+        status,
+        updatedAt: new Date().toISOString()
+      };
+      products[pIdx] = updatedProduct;
+      storageService.setCollection('PRODUCTS', products);
+
+      // Record immutable stock movement
+      inventoryService.recordMovement({
+        productId: prod.id,
+        productName: prod.name,
+        type: 'RETURN',
+        quantity: qtyToReturn,
+        previousStock: prod.stock,
+        newStock,
+        referenceId: saleId,
+        reason: `Customer return from invoice #${saleId}: ${reason}`,
+        user
+      });
+    }
+
+    // 2. Update sale item return tracking
+    const updatedItems = [...sale.items];
+    updatedItems[itemIndex] = {
+      ...item,
+      returnedQty: roundTo(alreadyReturned + qtyToReturn, 3)
+    };
+
+    const isEntireSaleReturned = updatedItems.every(i => (Number(i.returnedQty || 0) >= Number(i.qty || 0)));
+    const newStatus = isEntireSaleReturned ? 'Returned' : (sale.status === 'Paid' ? 'Paid' : sale.status);
+
+    const updatedSale = storageService.updateItem(this.collectionName, saleId, {
+      items: updatedItems,
+      status: newStatus,
+      lastReturnedAt: new Date().toISOString()
+    });
+
+    return {
+      success: true,
+      sale: updatedSale,
+      product: updatedProduct
     };
   }
 }
