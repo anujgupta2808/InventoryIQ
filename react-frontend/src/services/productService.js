@@ -27,6 +27,17 @@ export class ProductService {
     return products.find(p => String(p.id) === String(id)) || null;
   }
 
+  getByBarcode(barcode) {
+    if (!barcode) return null;
+    const clean = String(barcode).trim().toLowerCase();
+    const products = this.getAll();
+    return products.find(p => 
+      (p.barcode && String(p.barcode).trim().toLowerCase() === clean) ||
+      (p.sku && String(p.sku).trim().toLowerCase() === clean) ||
+      (String(p.id).trim().toLowerCase() === clean)
+    ) || null;
+  }
+
   checkDuplicateSKU(sku, excludeId = null) {
     if (!sku) return false;
     const cleanSku = String(sku).trim().toLowerCase();

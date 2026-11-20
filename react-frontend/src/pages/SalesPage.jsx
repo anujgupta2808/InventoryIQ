@@ -1,6 +1,8 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { useInventory } from '../context/InventoryContext';
 import { calculateSaleTotals } from '../utils/calculations';
+import { productService } from '../services/productService';
+import BarcodeScannerModal from '../components/BarcodeScannerModal';
 
 export const SalesPage = () => {
   const {
@@ -24,6 +26,7 @@ export const SalesPage = () => {
 
   // New Sale Modal State
   const [isNewSaleOpen, setIsNewSaleOpen] = useState(false);
+  const [isScannerOpen, setIsScannerOpen] = useState(false);
   const [buyerName, setBuyerName] = useState('Walk-in Customer');
   const [buyerPhone, setBuyerPhone] = useState('');
   const [buyerEmail, setBuyerEmail] = useState('');
@@ -206,6 +209,39 @@ const handleCartChange = (index, field, value) => {
   }));
 };
 
+const handleBarcodeScan = (scannedCode) => {
+  const prod = productService.getByBarcode(scannedCode);
+  if (!prod) {
+    showToast('Product Not Found', `No catalog item matches barcode/SKU "${scannedCode}".`, 'warning');
+    return false;
+  }
+  if (prod.stock <= 0) {
+    showToast('Out of Stock', `"${prod.name}" is completely out of stock.`, 'danger');
+    return false;
+  }
+
+  if (!isNewSaleOpen) {
+    setIsNewSaleOpen(true);
+  }
+
+  setCartItems(prev => {
+    const existingIdx = prev.findIndex(item => String(item.productId) === String(prod.id));
+    if (existingIdx >= 0) {
+      const currentQty = prev[existingIdx].qty || 1;
+      if (currentQty + 1 > prod.stock) {
+        showToast('Stock Limit', `Cannot exceed available inventory of ${prod.stock} units for "${prod.name}".`, 'warning');
+        return prev;
+      }
+      showToast('Quantity Incremented', `Added 1 more unit of "${prod.name}" (Qty: ${currentQty + 1})`, 'info');
+      return prev.map((item, idx) => idx === existingIdx ? { ...item, qty: currentQty + 1 } : item);
+    } else {
+      showToast('Item Scanned', `"${prod.name}" added to cart.`, 'success');
+      return [...prev, { productId: prod.id, qty: 1 }];
+    }
+  });
+  return true;
+};
+
 const handleSubmitSale = (e) => {
   e.preventDefault();
 
@@ -332,6 +368,17 @@ return (
         >
           <i className="bi bi-file-earmark-arrow-down text-gold"></i>
           <span>Export CSV</span>
+        </button>
+        <button
+          type="button"
+          className="btn btn-outline-gold d-flex align-items-center gap-2"
+          onClick={() => {
+            if (!isNewSaleOpen) handleOpenNewSale();
+            setIsScannerOpen(true);
+          }}
+        >
+          <i className="bi bi-upc-scan"></i>
+          <span>Scan & Bill (POS)</span>
         </button>
         <button
           type="button"
@@ -729,13 +776,22 @@ return (
                   <small className="text-secondary">Quantities will be deducted from inventory automatically</small>
                 </div>
                 {products.length > 0 && (
-                  <button
-                    type="button"
-                    className="btn btn-sm btn-outline-warning text-gold"
-                    onClick={handleAddCartRow}
-                  >
-                    <i className="bi bi-plus me-1"></i> Add Another Item
-                  </button>
+                  <div className="d-flex align-items-center gap-2">
+                    <button
+                      type="button"
+                      className="btn btn-sm btn-outline-gold d-flex align-items-center gap-1"
+                      onClick={() => setIsScannerOpen(true)}
+                    >
+                      <i className="bi bi-upc-scan"></i> Scan Barcode
+                    </button>
+                    <button
+                      type="button"
+                      className="btn btn-sm btn-outline-warning text-gold"
+                      onClick={handleAddCartRow}
+                    >
+                      <i className="bi bi-plus me-1"></i> Add Item
+                    </button>
+                  </div>
                 )}
               </div>
 
@@ -1138,6 +1194,15 @@ return (
         </div>
       </div>
     )}
+
+    {/* POS Barcode & QR Code Scanner Modal */}
+    <BarcodeScannerModal
+      isOpen={isScannerOpen}
+      onClose={() => setIsScannerOpen(false)}
+      onScan={handleBarcodeScan}
+      title="POS Barcode / QR Scanner"
+      instruction="Scan product barcode to instantly add to invoice"
+    />
   </div>
 );
 };

@@ -1,5 +1,7 @@
 import React, { useState, useMemo } from 'react';
 import { useInventory } from '../context/InventoryContext';
+import { productService } from '../services/productService';
+import BarcodeScannerModal from '../components/BarcodeScannerModal';
 
 export const PurchasesPage = () => {
   const {
@@ -23,6 +25,7 @@ export const PurchasesPage = () => {
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedStatus, setSelectedStatus] = useState('All');
   const [isNewPoOpen, setIsNewPoOpen] = useState(false);
+  const [isScannerOpen, setIsScannerOpen] = useState(false);
   const [selectedPoDetails, setSelectedPoDetails] = useState(null);
 
   // Supplier Mode: 'existing' | 'new'
@@ -152,6 +155,34 @@ export const PurchasesPage = () => {
   };
 
   const totalPoAmount = poItems.reduce((acc, i) => acc + (Number(i.qty || 0) * Number(i.cost || 0)), 0);
+
+  const handleBarcodeScan = (scannedCode) => {
+    const prod = productService.getByBarcode(scannedCode);
+    if (!prod) {
+      showToast('Product Not Found', `No catalog item matches code "${scannedCode}".`, 'warning');
+      return false;
+    }
+    setPoItems(prev => {
+      const existingIdx = prev.findIndex(item => String(item.productId) === String(prod.id));
+      if (existingIdx >= 0) {
+        const currentQty = Number(prev[existingIdx].qty || 1);
+        showToast('Quantity Incremented', `Added 1 more unit of "${prod.name}" to PO (Qty: ${currentQty + 1})`, 'info');
+        return prev.map((item, idx) => idx === existingIdx ? { ...item, qty: currentQty + 1 } : item);
+      } else {
+        showToast('Item Added', `"${prod.name}" added to Purchase Order.`, 'success');
+        return [...prev, {
+          productId: prod.id,
+          name: prod.name,
+          category: prod.category || 'General',
+          qty: 1,
+          cost: prod.costPrice || prod.price || 50,
+          sellingPrice: prod.price || Math.round((prod.costPrice || 50) * 1.35),
+          isNew: false
+        }];
+      }
+    });
+    return true;
+  };
 
   const handleSubmitPo = (e) => {
     e.preventDefault();
@@ -555,13 +586,22 @@ export const PurchasesPage = () => {
                       Items purchased will automatically appear in your Inventory page
                     </small>
                   </div>
-                  <button
-                    type="button"
-                    className="btn btn-sm btn-outline-warning text-gold"
-                    onClick={handleAddPoRow}
-                  >
-                    <i className="bi bi-plus me-1"></i> Add Another Item
-                  </button>
+                  <div className="d-flex align-items-center gap-2">
+                    <button
+                      type="button"
+                      className="btn btn-sm btn-outline-gold d-flex align-items-center gap-1"
+                      onClick={() => setIsScannerOpen(true)}
+                    >
+                      <i className="bi bi-upc-scan"></i> Scan Barcode
+                    </button>
+                    <button
+                      type="button"
+                      className="btn btn-sm btn-outline-warning text-gold"
+                      onClick={handleAddPoRow}
+                    >
+                      <i className="bi bi-plus me-1"></i> Add Another Item
+                    </button>
+                  </div>
                 </div>
 
                 <div className="table-responsive">
@@ -782,6 +822,15 @@ export const PurchasesPage = () => {
           </div>
         </div>
       )}
+
+      {/* PO Barcode & QR Code Scanner Modal */}
+      <BarcodeScannerModal
+        isOpen={isScannerOpen}
+        onClose={() => setIsScannerOpen(false)}
+        onScan={handleBarcodeScan}
+        title="Purchase Order Barcode Scanner"
+        instruction="Scan vendor product barcode to add to purchase order"
+      />
     </div>
   );
 };

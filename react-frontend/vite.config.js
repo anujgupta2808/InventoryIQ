@@ -8,6 +8,17 @@ export default defineConfig({
   server: {
     port: 5173,
     open: false
+  },
+  build: {
+    rollupOptions: {
+      output: {
+        manualChunks: {
+          vendor: ['react', 'react-dom'],
+          charts: ['chart.js', 'react-chartjs-2'],
+          supabase: ['@supabase/supabase-js']
+        }
+      }
+    }
   }
 });
 

@@ -1,5 +1,8 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { useInventory } from '../context/InventoryContext';
+import { productService } from '../services/productService';
+import BarcodeScannerModal from '../components/BarcodeScannerModal';
+import ProductQRModal from '../components/ProductQRModal';
 
 export const InventoryPage = () => {
   const {
@@ -32,11 +35,15 @@ export const InventoryPage = () => {
   // Modal States
   const [modalMode, setModalMode] = useState(null); // 'add' | 'edit' | 'details' | null
   const [selectedProduct, setSelectedProduct] = useState(null);
+  const [isScannerOpen, setIsScannerOpen] = useState(false);
+  const [isQrModalOpen, setIsQrModalOpen] = useState(false);
+  const [qrProduct, setQrProduct] = useState(null);
 
   // Form State
   const initialFormState = {
     name: '',
     sku: '',
+    barcode: '',
     category: allCategories[0] || '',
     stock: '',
     minStock: '20',
@@ -53,7 +60,8 @@ export const InventoryPage = () => {
     return products.filter(p => {
       const pName = String(p?.name ?? '').toLowerCase();
       const pSku = String(p?.sku ?? '').toLowerCase();
-      const matchSearch = !term || pName.includes(term) || pSku.includes(term);
+      const pBarcode = String(p?.barcode ?? '').toLowerCase();
+      const matchSearch = !term || pName.includes(term) || pSku.includes(term) || pBarcode.includes(term);
       const matchCat = selectedCategory === 'All' || p?.category === selectedCategory;
       const matchStat = selectedStatus === 'All' || p?.status === selectedStatus;
       return matchSearch && matchCat && matchStat;
@@ -119,6 +127,7 @@ export const InventoryPage = () => {
     setFormData({
       name: p.name,
       sku: p.sku,
+      barcode: p.barcode || '',
       category: p.category,
       stock: p.stock,
       minStock: p.minStock,
@@ -139,6 +148,7 @@ export const InventoryPage = () => {
     e.preventDefault();
     const cleanName = String(formData.name || '').trim();
     const cleanSku = String(formData.sku || '').trim().toUpperCase();
+    const cleanBarcode = String(formData.barcode || '').trim();
     const cleanCat = String(formData.category || '').trim();
     const cleanPrice = parseFloat(formData.price);
     const cleanCost = parseFloat(formData.costPrice || 0);
@@ -162,6 +172,18 @@ export const InventoryPage = () => {
     if (skuExists) {
       showToast('Duplicate SKU', `A product with SKU "${cleanSku}" already exists in your catalog.`, 'danger');
       return;
+    }
+
+    // Check duplicate barcode if specified
+    if (cleanBarcode) {
+      const barcodeExists = products.some(p =>
+        p.barcode && String(p.barcode).trim().toLowerCase() === cleanBarcode.toLowerCase() &&
+        (modalMode === 'add' || String(p.id) !== String(selectedProduct?.id))
+      );
+      if (barcodeExists) {
+        showToast('Duplicate Barcode', `Barcode "${cleanBarcode}" is already assigned to another product.`, 'danger');
+        return;
+      }
     }
 
     if (isNaN(cleanPrice) || cleanPrice <= 0) {
@@ -190,6 +212,7 @@ export const InventoryPage = () => {
       ...formData,
       name: cleanName,
       sku: cleanSku,
+      barcode: cleanBarcode,
       category: cleanCat || 'General',
       price: cleanPrice,
       costPrice: cleanCost,
@@ -250,6 +273,14 @@ export const InventoryPage = () => {
           >
             <i className="bi bi-file-earmark-arrow-down text-gold"></i>
             <span>Export CSV</span>
+          </button>
+          <button
+            type="button"
+            className="btn btn-outline-gold d-flex align-items-center gap-2"
+            onClick={() => setIsScannerOpen(true)}
+          >
+            <i className="bi bi-upc-scan"></i>
+            <span>Scan Barcode</span>
           </button>
           <button
             type="button"
@@ -450,6 +481,14 @@ export const InventoryPage = () => {
                         <button
                           type="button"
                           className="btn btn-sm btn-icon"
+                          onClick={() => { setQrProduct(p); setIsQrModalOpen(true); }}
+                          title="View / Print QR Code"
+                        >
+                          <i className="bi bi-qr-code text-gold"></i>
+                        </button>
+                        <button
+                          type="button"
+                          className="btn btn-sm btn-icon"
                           onClick={() => handleOpenEdit(p)}
                           title="Edit Product"
                         >
@@ -643,6 +682,27 @@ export const InventoryPage = () => {
                   />
                 </div>
 
+                <div className="col-12 col-md-6">
+                  <label className="form-label text-secondary small">Barcode / EAN / UPC</label>
+                  <div className="input-group">
+                    <input
+                      type="text"
+                      className="form-control bg-input border-secondary text-white"
+                      placeholder="e.g. 8901030382572"
+                      value={formData.barcode}
+                      onChange={(e) => setFormData({ ...formData, barcode: e.target.value })}
+                    />
+                    <button
+                      type="button"
+                      className="btn btn-outline-gold"
+                      onClick={() => setIsScannerOpen(true)}
+                      title="Scan Barcode with Camera"
+                    >
+                      <i className="bi bi-camera me-1"></i> Scan
+                    </button>
+                  </div>
+                </div>
+
                 <div className="col-12">
                   <label className="form-label text-secondary small">Primary Supplier</label>
                   <select
@@ -734,6 +794,22 @@ export const InventoryPage = () => {
                 <small className="text-secondary d-block">Supplier</small>
                 <span className="text-white fw-medium">{selectedProduct.supplierName || 'ABC Traders'}</span>
               </div>
+              <div className="col-12 d-flex justify-content-between align-items-center p-2 rounded bg-dark border border-secondary mt-2">
+                <div>
+                  <small className="text-secondary d-block">Barcode / QR</small>
+                  <span className="text-white font-monospace">{selectedProduct.barcode || selectedProduct.sku}</span>
+                </div>
+                <button
+                  type="button"
+                  className="btn btn-sm btn-outline-gold"
+                  onClick={() => {
+                    setQrProduct(selectedProduct);
+                    setIsQrModalOpen(true);
+                  }}
+                >
+                  <i className="bi bi-qr-code me-1"></i> QR Label
+                </button>
+              </div>
             </div>
 
             <div className="d-flex justify-content-end gap-2 mt-4 pt-3 border-top border-secondary">
@@ -759,6 +835,38 @@ export const InventoryPage = () => {
           </div>
         </div>
       )}
+
+      {/* Barcode & QR Code Scanner Modal */}
+      <BarcodeScannerModal
+        isOpen={isScannerOpen}
+        onClose={() => setIsScannerOpen(false)}
+        onScan={(scannedCode) => {
+          if (modalMode === 'add' || modalMode === 'edit') {
+            setFormData(prev => ({ ...prev, barcode: scannedCode }));
+            setIsScannerOpen(false);
+            showToast('Barcode Scanned', `Barcode "${scannedCode}" set for product.`, 'success');
+          } else {
+            const prod = productService.getByBarcode(scannedCode);
+            setIsScannerOpen(false);
+            if (prod) {
+              handleOpenDetails(prod);
+              showToast('Product Found', `Loaded product: ${prod.name}`, 'success');
+            } else {
+              showToast('Not Found', `No catalog product matched code "${scannedCode}".`, 'warning');
+            }
+          }
+        }}
+      />
+
+      {/* Product QR Code Modal */}
+      <ProductQRModal
+        isOpen={isQrModalOpen}
+        onClose={() => {
+          setIsQrModalOpen(false);
+          setQrProduct(null);
+        }}
+        product={qrProduct}
+      />
     </div>
   );
 };
