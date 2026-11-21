@@ -12,6 +12,7 @@ import { inventoryService } from './inventoryService.js';
 import { supplierService } from './supplierService.js';
 import { categoryService } from './categoryService.js';
 import { productService } from './productService.js';
+import { returnService } from './returnService.js';
 
 export class PurchaseService {
   constructor() {
@@ -273,7 +274,34 @@ export class PurchaseService {
     };
   }
 
-  returnToSupplier({ purchaseId, productId, quantity, reason = 'Supplier Return', user = 'Admin' }) {
+  returnToSupplier({ purchaseId, productId, quantity, reason = 'Supplier Return', user = 'Admin', idempotencyKey = null }) {
+    const po = purchaseId ? storageService.getItemById(this.collectionName, purchaseId) : null;
+    if (po) {
+      const res = returnService.processSupplierReturn({
+        purchaseId,
+        productId,
+        quantity,
+        reason,
+        user,
+        idempotencyKey
+      });
+
+      if (!res.success) {
+        return res;
+      }
+
+      return {
+        success: true,
+        purchase: res.purchase,
+        product: res.product,
+        returnRecord: res.returnRecord,
+        movement: res.movement,
+        debitNoteNumber: res.debitNoteNumber,
+        debitAmount: res.debitAmount
+      };
+    }
+
+    // Fallback for ad-hoc returns where purchase record was not persisted
     const qty = Number(quantity);
     if (!isPositiveNumber(qty) || !isFinite(qty)) {
       const msg = 'Return quantity must be a positive number greater than zero.';

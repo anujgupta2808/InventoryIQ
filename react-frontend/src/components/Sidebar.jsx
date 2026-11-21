@@ -163,11 +163,10 @@ export const Sidebar = () => {
                     <i className={`bi ${item.icon}`}></i>
                     {!isCollapsed && <span>{item.label}</span>}
                     {item.badge && !isCollapsed && (
-                      <span className={`nav-badge ${
-                        item.badgeVariant === 'danger' ? 'bg-danger text-white' :
+                      <span className={`nav-badge ${item.badgeVariant === 'danger' ? 'bg-danger text-white' :
                         item.badgeVariant === 'success' ? 'bg-success text-white' :
-                        'status-low-stock'
-                      }`}>
+                          'status-low-stock'
+                        }`}>
                         {item.badge}
                       </span>
                     )}

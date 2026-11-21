@@ -233,15 +233,39 @@ export const calculateStockValuation = (products = []) => {
 /**
  * Calculates Gross Profit using GAAP/IFRS standard:
  * Gross Profit = Revenue - COGS (Cost of Goods Sold)
- * Tracks actual cost_at_sale for historical accuracy.
+ * Tracks actual cost_at_sale for historical accuracy, with reverse COGS on customer returns.
  */
-export const calculateGrossProfit = (sales = [], purchases = []) => {
+export const calculateGrossProfit = (sales = [], purchases = [], returns = []) => {
   // Cancelled sales must not be counted as completed sales (Task 6)
   const activeSales = sales.filter(s => s && s.status !== 'Cancelled');
-  const totalRevenue = activeSales.reduce((sum, s) => sum + (Number(s.amount) || 0), 0);
+  const rawRevenue = activeSales.reduce((sum, s) => sum + (Number(s.amount) || 0), 0);
   const totalExpenditure = purchases.reduce((sum, p) => sum + (Number(p.amount) || 0), 0);
 
-  // Compute COGS: Sum of (item.qty * cost_at_sale) across all active sold items
+  // Calculate customer returns deduction
+  let customerReturnsTotal = 0;
+  if (Array.isArray(returns) && returns.length > 0) {
+    customerReturnsTotal = returns
+      .filter(r => r && (r.type === 'CUSTOMER_RETURN' || r.type === 'RETURN'))
+      .reduce((sum, r) => sum + (Number(r.refundAmount) || 0), 0);
+  } else {
+    // Fall back to line-item returned quantities or sale.returnedAmount
+    activeSales.forEach(s => {
+      if (s.returnedAmount) {
+        customerReturnsTotal += Number(s.returnedAmount) || 0;
+      } else if (Array.isArray(s.items)) {
+        s.items.forEach(item => {
+          if (Number(item.returnedQty) > 0) {
+            const price = Number(item.price) || 0;
+            customerReturnsTotal += price * Number(item.returnedQty);
+          }
+        });
+      }
+    });
+  }
+
+  const totalRevenue = Math.max(0, rawRevenue - customerReturnsTotal);
+
+  // Compute COGS: Sum of (effectiveNetQty * cost_at_sale) across all active sold items
   let totalCOGS = 0;
   let hasItemCosts = false;
 
@@ -249,9 +273,11 @@ export const calculateGrossProfit = (sales = [], purchases = []) => {
     if (Array.isArray(s.items) && s.items.length > 0) {
       s.items.forEach(item => {
         const cost = Number(item.cost !== undefined ? item.cost : (item.costPrice || 0));
-        const qty = Number(item.qty) || 0;
+        const soldQty = Number(item.qty) || 0;
+        const retQty = Number(item.returnedQty) || 0;
+        const netQty = Math.max(0, soldQty - retQty);
         if (cost > 0) hasItemCosts = true;
-        totalCOGS += cost * qty;
+        totalCOGS += cost * netQty;
       });
     }
   });

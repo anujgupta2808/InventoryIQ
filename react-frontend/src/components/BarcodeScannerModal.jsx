@@ -39,7 +39,7 @@ export default function BarcodeScannerModal({
     }
     if (streamRef.current) {
       streamRef.current.getTracks().forEach(track => {
-        try { track.stop(); } catch (_) {}
+        try { track.stop(); } catch (_) { }
       });
       streamRef.current = null;
     }
@@ -83,7 +83,7 @@ export default function BarcodeScannerModal({
       if (res && res.rawValue) {
         handleDetectedCode(res.rawValue, res.format);
       }
-    } catch (_) {}
+    } catch (_) { }
 
     animFrameRef.current = requestAnimationFrame(scanLoop);
   }, [handleDetectedCode]);
@@ -182,9 +182,9 @@ export default function BarcodeScannerModal({
 
   return (
     <div className="iq-modal-backdrop" onClick={onClose}>
-      <div 
-        className="iq-modal-container p-4" 
-        onClick={e => e.stopPropagation()} 
+      <div
+        className="iq-modal-container p-4"
+        onClick={e => e.stopPropagation()}
         style={{ maxWidth: 580, width: '95%' }}
       >
         {/* Header */}
@@ -234,9 +234,9 @@ export default function BarcodeScannerModal({
                 <i className="bi bi-exclamation-triangle fs-2 d-block mb-2"></i>
                 <div className="fw-bold mb-1">Camera Stream Unavailable</div>
                 <small className="d-block mb-3">{cameraError}</small>
-                <button 
-                  type="button" 
-                  className="btn btn-sm btn-outline-danger" 
+                <button
+                  type="button"
+                  className="btn btn-sm btn-outline-danger"
                   onClick={() => startCamera()}
                 >
                   <i className="bi bi-arrow-clockwise me-1"></i> Retry Camera
@@ -252,7 +252,7 @@ export default function BarcodeScannerModal({
                 />
 
                 {/* Laser Targeting Guide */}
-                <div 
+                <div
                   className="position-absolute top-50 start-50 translate-middle border border-gold rounded"
                   style={{
                     width: '70%',
@@ -261,11 +261,11 @@ export default function BarcodeScannerModal({
                     pointerEvents: 'none'
                   }}
                 >
-                  <div 
-                    className="w-100" 
-                    style={{ 
-                      height: 2, 
-                      backgroundColor: '#d4af37', 
+                  <div
+                    className="w-100"
+                    style={{
+                      height: 2,
+                      backgroundColor: '#d4af37',
                       boxShadow: '0 0 8px #d4af37',
                       marginTop: '45%'
                     }}

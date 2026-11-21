@@ -18,7 +18,8 @@ export const STORES = {
   PAYMENTS: 'payments',
   STOCK_MOVEMENTS: 'stockMovements',
   AUDIT_LOGS: 'auditLogs',
-  SETTINGS: 'settings'
+  SETTINGS: 'settings',
+  RETURNS: 'returns'
 };
 
 export const ALL_STORES = Object.values(STORES);
@@ -117,5 +118,14 @@ export function setupDatabaseSchema(db) {
   // 12. Settings Store
   if (!db.objectStoreNames.contains(STORES.SETTINGS)) {
     db.createObjectStore(STORES.SETTINGS, { keyPath: 'key' });
+  }
+
+  // 13. Returns Store (Customer & Supplier Reversals)
+  if (!db.objectStoreNames.contains(STORES.RETURNS)) {
+    const returnStore = db.createObjectStore(STORES.RETURNS, { keyPath: 'id' });
+    returnStore.createIndex('by_type', 'type', { unique: false });
+    returnStore.createIndex('by_originalTransactionId', 'originalTransactionId', { unique: false });
+    returnStore.createIndex('by_productId', 'productId', { unique: false });
+    returnStore.createIndex('by_createdAt', 'createdAt', { unique: false });
   }
 }

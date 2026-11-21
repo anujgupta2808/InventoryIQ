@@ -28,6 +28,7 @@ import { backupService } from '../services/backupService';
 import { syncChannel } from '../services/syncChannel';
 import { checkDatabaseHealth } from '../database/db';
 import { licenseService } from '../services/licenseService';
+import { returnService } from '../services/returnService';
 
 const InventoryContext = createContext();
 
@@ -81,6 +82,7 @@ export const InventoryProvider = ({ children }) => {
   const [purchases, setPurchases] = useState(() => storageService.getCollection('PURCHASES', INITIAL_PURCHASES));
   const [suppliers, setSuppliers] = useState(() => storageService.getCollection('SUPPLIERS', INITIAL_SUPPLIERS));
   const [customers, setCustomers] = useState(() => storageService.getCollection('CUSTOMERS', []));
+  const [returns, setReturns] = useState(() => storageService.getCollection('RETURNS', []));
   const [auditLogs, setAuditLogs] = useState(() => storageService.getCollection('AUDIT_LOGS', INITIAL_AUDIT_LOGS));
 
   // Initialize IndexedDB for authenticated shop & check new device status
@@ -95,6 +97,7 @@ export const InventoryProvider = ({ children }) => {
         const loadedPurchases = purchaseService.getAll();
         const loadedSuppliers = supplierService.getAll();
         const loadedCustomers = customerService.getAll();
+        const loadedReturns = returnService.getAll();
         const loadedCats = storageService.getCollection('CATEGORIES', []);
         const loadedAudit = storageService.getCollection('AUDIT_LOGS', []);
 
@@ -103,6 +106,7 @@ export const InventoryProvider = ({ children }) => {
         setPurchases(loadedPurchases);
         setSuppliers(loadedSuppliers);
         setCustomers(loadedCustomers);
+        setReturns(loadedReturns);
         setCategories(loadedCats);
         setAuditLogs(loadedAudit);
 
@@ -701,7 +705,9 @@ export const InventoryProvider = ({ children }) => {
       showToast('Supplier Return Error', res.message, 'danger');
       return res;
     }
+    setPurchases(purchaseService.getAll());
     setProducts(productService.getAll());
+    setReturns(returnService.getAll());
     addAuditLog('Supplier Return', `Returned ${quantity} units to vendor for product #${productId}`);
     showToast('Supplier Return Logged', `Returned ${quantity} units to supplier.`);
     return res;
@@ -721,6 +727,7 @@ export const InventoryProvider = ({ children }) => {
     }
     setSales(salesService.getAll());
     setProducts(productService.getAll());
+    setReturns(returnService.getAll());
     addAuditLog('Customer Return', `Returned ${quantity} units of product #${productId} from invoice #${saleId}`);
     showToast('Customer Return Processed', `Restored ${quantity} units to inventory.`);
     return res;
@@ -909,9 +916,12 @@ export const InventoryProvider = ({ children }) => {
     updateSupplier,
     deleteSupplier,
 
-    // Customers
+    // Customers & Returns
     customers,
     setCustomers,
+    returns,
+    setReturns,
+    returnService,
 
     // Sessions & Security
     sessions,

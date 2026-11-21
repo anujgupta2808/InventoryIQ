@@ -74,9 +74,8 @@ Thank you for your business!
           <div className="d-flex align-items-center gap-2">
             <span className="badge badge-gold">Tax Invoice</span>
             <span className="text-white fw-semibold">#{activeInvoice.id}</span>
-            <span className={`badge ${
-              paymentStatus === 'Paid' ? 'badge-success' : paymentStatus === 'Partial' ? 'badge-warning text-dark' : 'badge-danger'
-            }`}>
+            <span className={`badge ${paymentStatus === 'Paid' ? 'badge-success' : paymentStatus === 'Partial' ? 'badge-warning text-dark' : 'badge-danger'
+              }`}>
               {paymentStatus === 'Paid' ? 'Paid in Full' : paymentStatus === 'Partial' ? 'Partial Payment' : 'Unpaid / Due'}
             </span>
           </div>
@@ -127,9 +126,8 @@ Thank you for your business!
               <h5 className="fw-bold text-gold mb-1">TAX INVOICE</h5>
               <div className="text-white fw-medium">Invoice: #{activeInvoice.id}</div>
               <div className="text-secondary small">Date: {activeInvoice.date}</div>
-              <span className={`badge mt-1 ${
-                paymentStatus === 'Paid' ? 'badge-success' : paymentStatus === 'Partial' ? 'badge-warning text-dark' : 'badge-danger'
-              }`}>
+              <span className={`badge mt-1 ${paymentStatus === 'Paid' ? 'badge-success' : paymentStatus === 'Partial' ? 'badge-warning text-dark' : 'badge-danger'
+                }`}>
                 {paymentStatus.toUpperCase()}
               </span>
             </div>

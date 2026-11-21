@@ -13,11 +13,20 @@ export class AnalyticsService {
     const products = storageService.getCollection('PRODUCTS');
     const allSales = storageService.getCollection('SALES');
     const purchases = storageService.getCollection('PURCHASES');
+    const returns = storageService.getCollection('RETURNS');
 
     // Financial KPIs must strictly exclude cancelled invoices
     const sales = allSales.filter(s => s.status !== 'Cancelled');
 
-    const totalSalesVal = roundTo(sales.reduce((acc, s) => acc + (Number(s.amount) || 0), 0));
+    // Customer returns reduce net sales revenue
+    const customerReturnsTotal = returns
+      .filter(r => r && (r.type === 'CUSTOMER_RETURN' || r.type === 'RETURN'))
+      .reduce((sum, r) => sum + (Number(r.refundAmount) || 0), 0);
+    const saleReportedReturns = sales.reduce((acc, s) => acc + (Number(s.returnedAmount) || 0), 0);
+    const effectiveCustomerReturns = customerReturnsTotal > 0 ? customerReturnsTotal : saleReportedReturns;
+
+    const grossSalesVal = sales.reduce((acc, s) => acc + (Number(s.amount) || 0), 0);
+    const totalSalesVal = roundTo(Math.max(0, grossSalesVal - effectiveCustomerReturns));
     const totalReceivedVal = roundTo(sales.reduce((acc, s) => {
       const paid = s.paidAmount !== undefined
         ? Number(s.paidAmount) || 0
@@ -38,7 +47,7 @@ export class AnalyticsService {
     }, 0));
 
     // Proper GAAP/IFRS Gross Profit = Revenue - COGS
-    const profitReport = calculateGrossProfit(sales, purchases);
+    const profitReport = calculateGrossProfit(sales, purchases, returns);
     const totalProfit = profitReport.profit;
     const valuation = calculateStockValuation(products);
 
@@ -71,10 +80,13 @@ export class AnalyticsService {
     let sales = storageService.getCollection('SALES');
     let purchases = storageService.getCollection('PURCHASES');
 
+    let returns = storageService.getCollection('RETURNS');
+
     // Filter sales by date
     if (startDate || endDate) {
       sales = sales.filter(s => isWithinDateRange(s.createdAt || s.date, startDate, endDate));
       purchases = purchases.filter(p => isWithinDateRange(p.createdAt || p.date, startDate, endDate));
+      returns = returns.filter(r => isWithinDateRange(r.createdAt || r.returnDate, startDate, endDate));
     }
 
     // Exclude cancelled sales from revenue and analytics reports
@@ -90,9 +102,9 @@ export class AnalyticsService {
       );
     }
 
-    const totalRevenue = roundTo(sales.reduce((sum, s) => sum + (Number(s.amount) || 0), 0));
+    const profitReport = calculateGrossProfit(sales, purchases, returns);
+    const totalRevenue = profitReport.revenue;
     const totalExpenditure = roundTo(purchases.reduce((sum, p) => sum + (Number(p.amount) || 0), 0));
-    const profitReport = calculateGrossProfit(sales, purchases);
 
     return {
       salesCount: sales.length,

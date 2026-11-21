@@ -31,7 +31,8 @@ class StorageService {
     const defaultStores = [
       'PRODUCTS', 'CATEGORIES', 'SALES', 'SALE_ITEMS',
       'PURCHASES', 'PURCHASE_ITEMS', 'CUSTOMERS', 'SUPPLIERS',
-      'PAYMENTS', 'STOCK_MOVEMENTS', 'AUDIT_LOGS', 'SETTINGS'
+      'PAYMENTS', 'STOCK_MOVEMENTS', 'AUDIT_LOGS', 'SETTINGS',
+      'RETURNS'
     ];
     defaultStores.forEach(name => {
       if (!this.memoryCache.has(name)) {
@@ -60,7 +61,8 @@ class StorageService {
         SUPPLIERS: STORES.SUPPLIERS,
         PAYMENTS: STORES.PAYMENTS,
         STOCK_MOVEMENTS: STORES.STOCK_MOVEMENTS,
-        AUDIT_LOGS: STORES.AUDIT_LOGS
+        AUDIT_LOGS: STORES.AUDIT_LOGS,
+        RETURNS: STORES.RETURNS
       };
 
       for (const [cacheKey, storeName] of Object.entries(storeMap)) {
@@ -94,7 +96,8 @@ class StorageService {
       PAYMENTS: STORES.PAYMENTS,
       STOCK_MOVEMENTS: STORES.STOCK_MOVEMENTS,
       AUDIT_LOGS: STORES.AUDIT_LOGS,
-      SETTINGS: STORES.SETTINGS
+      SETTINGS: STORES.SETTINGS,
+      RETURNS: STORES.RETURNS
     };
     return map[upper] || STORES.PRODUCTS;
   }
